@@ -3,10 +3,20 @@
 ## 文件结构
 
 - data      `原始数据`
-- .env      `环境变量`
 - create.py     `知识图谱构建模块`
 - loader.py     `文档分割模块`
 - query.py      `知识图谱问答模块`
+
+> 需要单独建立.env文件，内容如下：
+
+    # 数据库配置
+    NEO4J_URI="Your neo4j URI"
+    NEO4J_USERNAME="Your username"
+    NEO4J_PASSWORD="Your password"
+
+    # api-key
+    DEEPSEEK_API_KEY = "Your deepseek api-key"
+
 
 ## 构建部分
 
