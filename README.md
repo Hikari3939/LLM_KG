@@ -7,7 +7,7 @@
 - loader.py     `文档分割模块`
 - query.py      `知识图谱问答模块`
 
-> 需要单独建立.env文件，内容如下：
+> 拉取后需在项目主目录单独建立.env文件，内容如下：
 
     # 数据库配置
     NEO4J_URI="Your neo4j URI"
