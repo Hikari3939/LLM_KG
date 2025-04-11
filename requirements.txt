@@ -1,0 +1,9 @@
+langchain
+langchain_core
+langchain_neo4j
+langchain_ollama
+langchain_deepseek
+langchain_experimental
+
+py2neo
+pymupdf
