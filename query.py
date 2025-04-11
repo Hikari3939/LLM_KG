@@ -40,7 +40,7 @@ if __name__ == '__main__':
     )
 
     while True:
-        questions = input("请输入问题：")
+        questions = input("\n请输入问题：")
         if questions!="exit":
             answer = chain.invoke({"query":questions})
             print(answer['result'])
