@@ -1,0 +1,9 @@
+langchain
+langchain-core
+langchain-neo4j
+langchain-deepseek
+langchain_community
+
+hanlp
+
+dotenv
