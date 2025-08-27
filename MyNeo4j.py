@@ -1,4 +1,4 @@
-# 重载Neo4jGraph类，使节点合并时对description属性进行拼接而非直接替代--------------
+# 重载Neo4jGraph类，使节点合并时对description属性进行拼接而非直接替代
 from langchain_neo4j.graphs.graph_document import GraphDocument
 from langchain_neo4j import Neo4jGraph
 from typing import Any, Dict, List, Optional

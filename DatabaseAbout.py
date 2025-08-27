@@ -1,4 +1,4 @@
-# 在Neo4j中创建文档与Chunk的图结构----------------------------------------------
+# 在Neo4j中创建文档与Chunk的图结构
 # https://python.langchain.com/v0.2/api_reference/community/graphs/langchain_community.graphs.neo4j_graph.Neo4jGraph.html#langchain_community.graphs.neo4j_graph.Neo4jGraph.add_graph_documents
 from langchain_core.documents import Document
 import hashlib
@@ -100,7 +100,7 @@ def create_relation_between_chunks(graph, file_name, chunks: List)->list:
     
     return lst_chunks_including_hash
 
-# 提取的实体关系写入Neo4j-------------------------------------------------------
+# 提取的实体关系写入Neo4j
 # 由answer.content生成一个GraphDocument对象
 # 每个GraphDocument对象里增加一个metadata属性chunk_id，以便与前面建立的Chunk结点关联
 import re
