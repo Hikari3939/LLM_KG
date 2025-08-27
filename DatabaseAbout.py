@@ -167,3 +167,74 @@ def merge_relationship_between_chunk_and_entites(graph: MyNeo4jGraph, graph_docu
           DETACH DELETE d
                 """
         graph.query(unwind_query, params={"batch_data": batch_data})
+
+# 用K近邻算法查找embedding相似值在阈值以内的近邻
+# 建立所有实体在内存投影的子图，GDS算法都要通过内存投影运行
+# G代表了子图的投影
+def knn_similarity(graph, gds):
+    G, _ = gds.graph.project(
+        "entities",                   #  Graph name
+        "__Entity__",                 #  Node projection
+        "*",                          #  Relationship projection
+        nodeProperties=["embedding"]  #  Configuration parameters
+    )
+
+    # 根据前面对Embedding模型的测试设置相似性阈值
+    similarity_threshold = 0.95
+
+    # 用KNN算法找出Embedding相似的实体，建立SIMILAR连接
+    gds.knn.mutate(
+    G,
+    nodeProperties=['embedding'],
+    mutateRelationshipType= 'SIMILAR',
+    mutateProperty= 'score',
+    similarityCutoff=similarity_threshold
+    )
+
+    # 弱连接组件算法（不分方向），从新识别的SIMILAR关系中识别相识的社区，社区编号存放在结点的wcc属性
+    gds.wcc.write(
+        G,
+        writeProperty="wcc",
+        relationshipTypes=["SIMILAR"]
+    )
+
+    # 找出潜在的相同实体
+    word_edit_distance = 3
+    potential_duplicate_candidates = graph.query(
+        """MATCH (e:`__Entity__`)
+        WHERE size(e.id) > 1 // 长度大于1个字符
+        WITH e.wcc AS community, collect(e) AS nodes, count(*) AS count
+        WHERE count > 1
+        UNWIND nodes AS node
+        // 计算文本距离
+        WITH distinct
+            [n IN nodes WHERE apoc.text.distance(toLower(node.id), toLower(n.id)) < $distance | n] AS intermediate_results
+        WHERE size(intermediate_results) > 1
+        // 对每个候选节点组，检查节点间是否至少共享一个非'__Entity__'且非'未知'的标签
+        WITH [ir IN intermediate_results WHERE ANY(other IN intermediate_results WHERE ir <> other AND 
+            ANY(label IN labels(ir) WHERE NOT label IN ['__Entity__', '未知'] AND label IN labels(other)))] AS filtered_results
+        WHERE size(filtered_results) > 1 // 确保筛选后仍有多个候选节点
+        WITH collect([res IN filtered_results | res.id]) AS results // 收集节点ID
+        // 合并共享元素的组
+        UNWIND range(0, size(results)-1, 1) as index
+        WITH results, index, results[index] as result
+        WITH apoc.coll.sort(reduce(acc = result, index2 IN range(0, size(results)-1, 1) |
+                CASE WHEN index <> index2 AND
+                    size(apoc.coll.intersection(acc, results[index2])) > 0
+                    THEN apoc.coll.union(acc, results[index2])
+                    ELSE acc
+                END
+        )) as combinedResult
+        WITH distinct(combinedResult) as combinedResult
+        // 额外过滤
+        WITH collect(combinedResult) as allCombinedResults
+        UNWIND range(0, size(allCombinedResults)-1, 1) as combinedResultIndex
+        WITH allCombinedResults[combinedResultIndex] as combinedResult, combinedResultIndex, allCombinedResults
+        WHERE NOT any(x IN range(0,size(allCombinedResults)-1,1)
+            WHERE x <> combinedResultIndex
+            AND apoc.coll.containsAll(allCombinedResults[x], combinedResult)
+        )
+        RETURN combinedResult
+        """, params={'distance': word_edit_distance})
+    
+    return potential_duplicate_candidates
