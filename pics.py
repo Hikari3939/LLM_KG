@@ -1,6 +1,6 @@
 # script_wikipedia.py
 # 这个脚本教你如何从Wikipedia获取图片（如果Bing API用不了，可以用这个）
-#test
+#test&test
 
 import wikipediaapi
 from neo4j import GraphDatabase
