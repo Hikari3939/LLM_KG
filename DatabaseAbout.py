@@ -128,13 +128,15 @@ def convert_to_graph_document(chunk_id, input_text, result):
         source_id, target_id, type, description, weight = match
         # 确保source节点存在
         if source_id not in nodes:
-            nodes[source_id] = Node(id=source_id, type="未知", properties={'description': 'No additional data'})
+            nodes[source_id] = Node(id=source_id, type="未知", properties={'description': ''})
+            
         # 确保target节点存在
         if target_id not in nodes:
-            nodes[target_id] = Node(id=target_id, type="未知", properties={'description': 'No additional data'})
+            nodes[target_id] = Node(id=target_id, type="未知", properties={'description': ''})
+            
         relationships.append(Relationship(source=nodes[source_id], target=nodes[target_id], type=type,
             properties={"description":description, "weight":float(weight)}))
-
+    
     # 创建图对象
     graph_document = GraphDocument(
         nodes=list(nodes.values()),

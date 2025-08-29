@@ -20,7 +20,7 @@ def my_get_node_import_query(baseEntityLabel: bool, include_source: bool) -> str
             "UNWIND $data AS row "
             f"MERGE (source:`{BASE_ENTITY_LABEL}` {{id: row.id}}) "
             
-            # 修改点：对description属性进行拼接处理
+            # 对description属性进行拼接处理
             f"{'WITH d, source, row, ' if include_source else 'WITH source, row, '}"
             "apoc.map.setKey( "  # 创建新属性映射
             "   row.properties, "  # 原始属性
@@ -30,11 +30,24 @@ def my_get_node_import_query(baseEntityLabel: bool, include_source: bool) -> str
             "   COALESCE(row.properties.description, '') "  # 新description值
             ") AS mergedProps "  # 生成最终属性映射
             "SET source += mergedProps "  # 更新节点属性
-            
-            # "SET source += row.properties "
+                        
             f"{'MERGE (d)-[:MENTIONS]->(source) ' if include_source else ''}"
-            "WITH source, row "
-            "CALL apoc.create.addLabels( source, [row.type] ) YIELD node "
+            
+            # 检查并处理标签
+            f"{'WITH d, source, row' if include_source else 'WITH source, row'} "
+            "WITH source, row, "
+            # 检查节点是否只有BASE_ENTITY_LABEL和可能的'未知'标签
+            "CASE "
+            f"  WHEN row.type = '未知' AND size([l IN labels(source) WHERE l <> '{BASE_ENTITY_LABEL}' AND l <> '未知']) > 0 "
+            "    THEN [] "  # 舍弃'未知'标签
+            "    ELSE [row.type] "  # 保留标签
+            "END AS validLabels "
+            
+            # 使用apoc.create.setLabels设置标签
+            "CALL apoc.create.setLabels(source, "
+            f"  [l IN validLabels WHERE l <> ''] + '{BASE_ENTITY_LABEL}') "  # 保留有效标签并确保有BASE_ENTITY_LABEL
+            "YIELD node "
+
             "RETURN distinct 'done' AS result"
         )
     else:
