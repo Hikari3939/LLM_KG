@@ -22,12 +22,6 @@ INSTRUCT_MODEL = 'deepseek-chat'
 if __name__ == '__main__':
     graph = Neo4jGraph(refresh_schema=False)
 
-    # # 连接模型
-    # llm = ChatDeepSeek(
-    #     model=INSTRUCT_MODEL,
-    #     temperature=1.0
-    # )
-
     # # 加载BAAI/BGE-M3(3.7G显存)
     # embeddings = HuggingFaceEmbeddings(
     #             model_name="BAAI/bge-m3", 
@@ -48,5 +42,10 @@ if __name__ == '__main__':
         auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
     )
     
-    potential_duplicate_candidates = DatabaseAbout.knn_similarity(graph, gds)
-    print(potential_duplicate_candidates)
+    potential_duplicate_candidates = DatabaseAbout.knn_similarity(graph, gds)    
+    
+    # # 连接模型
+    # llm = ChatDeepSeek(
+    #     model=INSTRUCT_MODEL,
+    #     temperature=1.0
+    # )
