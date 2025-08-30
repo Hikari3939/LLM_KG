@@ -1,5 +1,4 @@
 # 在Neo4j中创建文档与Chunk的图结构
-# https://python.langchain.com/v0.2/api_reference/community/graphs/langchain_community.graphs.neo4j_graph.Neo4jGraph.html#langchain_community.graphs.neo4j_graph.Neo4jGraph.add_graph_documents
 from langchain_core.documents import Document
 import hashlib
 import logging
@@ -17,7 +16,6 @@ def create_Document(graph, type, uri, file_name):
 
 #创建Chunk结点并建立Chunk之间及与Document之间的关系
 #这个程序直接从Neo4j KG Builder拷贝引用，为了增加tokens属性稍作修改。
-#https://github.com/neo4j-labs/llm-graph-builder/blob/main/backend/src/make_relationships.py
 def create_relation_between_chunks(graph, file_name, chunks: List)->list:
     logging.info("creating FIRST_CHUNK and NEXT_CHUNK relationships between chunks")
     current_chunk_id = ""

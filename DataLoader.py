@@ -29,7 +29,13 @@ tokenizer = hanlp.load(hanlp.pretrained.tok.COARSE_ELECTRA_SMALL_ZH)
 
 # 划分段落。
 def split_into_paragraphs(text):
-    return text.split('\n')
+    text = text.replace('\r', '\n')
+    
+    paragraphs = text.split('\n')
+    while '' in paragraphs:
+        paragraphs.remove('')
+        
+    return paragraphs
 
 # 判断token是否为句子结束符，视情况再增加。
 def is_sentence_end(token):
@@ -84,11 +90,14 @@ def chunk_text(text, chunk_size=300, overlap=50):
             buffer=buffer[start_next:]
         
     if buffer:  # 如果缓冲区还有剩余的token
-        # 检查一下剩余部分是否已经包含在最后一个分块之中，它只是留作块间重叠。
-        last_chunk = chunks[len(chunks)-1]
-        rest = ''.join(buffer)
-        temp = ''.join(last_chunk[len(last_chunk)-len(rest):])
-        if temp!=rest:   # 如果不是留作重叠，则是最后的一个分块。
+        if len(chunks) > 0:
+            # 检查一下剩余部分是否已经包含在最后一个分块之中，它只是留作块间重叠。
+            last_chunk = chunks[len(chunks)-1]
+            rest = ''.join(buffer)
+            temp = ''.join(last_chunk[len(last_chunk)-len(rest):])
+            if temp!=rest:   # 如果不是留作重叠，则是最后的一个分块。
+                chunks.append(buffer)
+        else:
             chunks.append(buffer)
     
     return chunks
