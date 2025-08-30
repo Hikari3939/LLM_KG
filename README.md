@@ -30,6 +30,6 @@
         # api-key
         DEEPSEEK_API_KEY = "Your deepseek api-key"
 
-- 使用指令：pip install -r requirements.txt 可以安装该项目需要的所有资源包
+- 使用指令：`pip install -r requirements.txt` 可以安装该项目需要的所有资源包
 
 - Neo4j需要安装APOC和GDS插件
