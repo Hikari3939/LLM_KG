@@ -1,9 +1,8 @@
-langchain
-langchain-core
-langchain-neo4j
-langchain-deepseek
-langchain_community
-
-hanlp
-
-dotenv
+graphdatascience==1.16
+hanlp==2.1.1
+langchain_community==0.3.29
+langchain_core==0.3.75
+langchain_deepseek==0.1.4
+langchain_huggingface==0.3.1
+langchain_neo4j==0.5.0
+python-dotenv==1.1.1
