@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
-from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
 from langchain_deepseek import ChatDeepSeek
+from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
 
 # 加载环境变量
 load_dotenv(".env")

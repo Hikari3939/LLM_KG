@@ -5,10 +5,10 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.config import RunnableConfig
-import DataLoader
-import DatabaseAbout
 
-from MyNeo4j import MyNeo4jGraph
+from my_packages import DataLoader
+from my_packages import DatabaseAbout
+from my_packages.MyNeo4j import MyNeo4jGraph
 
 # 加载环境变量
 load_dotenv(".env")

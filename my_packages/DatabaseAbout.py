@@ -1,9 +1,13 @@
-# 在Neo4j中创建文档与Chunk的图结构
-from langchain_core.documents import Document
-from typing import List
+import re
 import hashlib
 import logging
+from typing import List
+from langchain_core.documents import Document
+from langchain_community.graphs.graph_document import GraphDocument, Node, Relationship
 
+from my_packages.MyNeo4j import MyNeo4jGraph
+
+# 在Neo4j中创建文档与Chunk的图结构
 # 创建Document结点，与Chunk之间按属性名fileName匹配。
 def create_Document(graph, type, uri, file_name):
     query = """
@@ -101,12 +105,6 @@ def create_relation_between_chunks(graph, file_name, chunks: List)->list:
 # 提取的实体关系写入Neo4j
 # 由answer.content生成一个GraphDocument对象
 # 每个GraphDocument对象里增加一个metadata属性chunk_id，以便与前面建立的Chunk结点关联
-import re
-from langchain_community.graphs.graph_document import GraphDocument, Node, Relationship
-from langchain_core.documents import Document
-
-from MyNeo4j import MyNeo4jGraph
-
 # 将每个块提取的实体关系文本转换为LangChain的GraphDocument对象
 def convert_to_graph_document(chunk_id, input_text, result):
     # 提取节点和关系

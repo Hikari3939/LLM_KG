@@ -1,5 +1,5 @@
-# 读入测试数据
 import os
+import hanlp
 import codecs
 
 # 读入测试文件。
@@ -22,8 +22,6 @@ def read_txt_files(directory):
     return results
 
 # 文本分块
-import hanlp
-
 # 单任务模型，分词，token的计数是计算词，包括标点符号。
 tokenizer = hanlp.load(hanlp.pretrained.tok.COARSE_ELECTRA_SMALL_ZH)
 
