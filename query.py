@@ -1,8 +1,8 @@
 import os
 from dotenv import load_dotenv
-
-from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
 from langchain_deepseek import ChatDeepSeek
+from my_packages.MyNeo4j import MyNeo4jGraph
+from langchain_neo4j import GraphCypherQAChain
 
 # 加载环境变量
 load_dotenv(".env")
@@ -17,7 +17,7 @@ INSTRUCT_MODEL = 'deepseek-chat'
 
 if __name__ == '__main__':
     # 连接neo4j数据库
-    graph = Neo4jGraph(
+    graph = MyNeo4jGraph(
         url=NEO4J_URI, 
         username=NEO4J_USERNAME, 
         password=NEO4J_PASSWORD,

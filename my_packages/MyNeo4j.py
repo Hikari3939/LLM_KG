@@ -1,7 +1,7 @@
-# 重载Neo4jGraph类，使节点合并时对description属性进行拼接而非直接替代--------------
+# 重载Neo4jGraph类，使节点合并时对description属性进行拼接而非直接替代
 from langchain_neo4j.graphs.graph_document import GraphDocument
-from langchain_neo4j import Neo4jGraph
 from typing import Any, Dict, List, Optional
+from langchain_neo4j import Neo4jGraph
 from hashlib import md5
 
 BASE_ENTITY_LABEL = "__Entity__"
@@ -13,6 +13,7 @@ include_docs_query = (
     "WITH d "
 )
 
+# 修改后的节点合并函数
 def my_get_node_import_query(baseEntityLabel: bool, include_source: bool) -> str:
     if baseEntityLabel:
         return (
@@ -20,21 +21,55 @@ def my_get_node_import_query(baseEntityLabel: bool, include_source: bool) -> str
             "UNWIND $data AS row "
             f"MERGE (source:`{BASE_ENTITY_LABEL}` {{id: row.id}}) "
             
-            # 修改点：对description属性进行拼接处理
+            # 对description属性进行拼接处理
             f"{'WITH d, source, row, ' if include_source else 'WITH source, row, '}"
-            "apoc.map.setKey( "  # 创建新属性映射
+            # 创建新属性映射
+            "apoc.map.setKey( "
             "   row.properties, "  # 原始属性
-            "   'description', "   # 指定要修改的属性名
-            "   COALESCE(source.description, '') + "  # 原description（不存在则用空字符串）
-            "   CASE WHEN source.description IS NOT NULL THEN ' ' ELSE '' END + "  # 添加空格分隔符（如果原值存在）
-            "   COALESCE(row.properties.description, '') "  # 新description值
-            ") AS mergedProps "  # 生成最终属性映射
-            "SET source += mergedProps "  # 更新节点属性
+            "   'description', "  # 指定要修改的属性名
+            "   COALESCE( "
+            "       CASE "
+                        # 当原description和新description都不为空时，用分隔符连接
+            "           WHEN (source.description IS NOT NULL AND source.description <> '') "
+            "                 AND (row.properties.description IS NOT NULL AND row.properties.description <> '') "
+            "           THEN source.description + '；' + row.properties.description "
+                        # 当只有原description有值时，直接使用原值
+            "           WHEN (source.description IS NOT NULL AND source.description <> '') "
+            "                 AND (row.properties.description IS NULL OR row.properties.description = '') "
+            "           THEN source.description "
+                        # 当只有新description有值时，直接使用新值
+            "           WHEN (source.description IS NULL OR source.description = '') "
+            "                 AND (row.properties.description IS NOT NULL AND row.properties.description <> '') "
+            "           THEN row.properties.description "
+                        # 其他情况（两者都为空）返回空字符串
+            "           ELSE '' "
+            "        END, "
+            "       '' "
+            "    ) "  # 外层COALESCE确保最终结果不为NULL
+            ") AS mergedProps "
             
-            # "SET source += row.properties "
+            "SET source += mergedProps "  # 更新节点属性
+                        
             f"{'MERGE (d)-[:MENTIONS]->(source) ' if include_source else ''}"
-            "WITH source, row "
-            "CALL apoc.create.addLabels( source, [row.type] ) YIELD node "
+            
+            # 检查并处理标签
+            "WITH source, row, "
+            
+            # 标签合并逻辑
+            "CASE "
+            # row.type 为'未知'
+            f" WHEN row.type = '未知' AND size([l IN labels(source) WHERE l <> '{BASE_ENTITY_LABEL}' AND l <> '未知']) > 0 "
+            "    THEN labels(source) "  # 仅保留 source 标签
+            "  WHEN '未知' IN labels(source) "  # source 标签中含有'未知'
+            f"   THEN ['{BASE_ENTITY_LABEL}'] + [row.type] "  # 仅保留 row.type 标签
+            "  ELSE labels(source) + [row.type] "
+            "END AS validLabels "
+
+            # 设置标签
+            "CALL apoc.create.setLabels(source, "
+            f"  [l IN validLabels WHERE l <> '']) "  # 保留有效标签
+            "YIELD node "
+
             "RETURN distinct 'done' AS result"
         )
     else:

@@ -3,10 +3,12 @@ import time
 from dotenv import load_dotenv
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables.config import RunnableConfig
 
-import DataLoader
-import DatabaseAbout
-from MyNeo4j import MyNeo4jGraph
+from my_packages import DataLoader
+from my_packages import DatabaseAbout
+from my_packages.MyNeo4j import MyNeo4jGraph
 
 # 加载环境变量
 load_dotenv(".env")
@@ -180,11 +182,10 @@ if __name__ == '__main__':
 
     chat_prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt), 
-        ("placeholder", "{chat_history}"), 
         ("human", human_prompt)
     ])
 
-    chain = chat_prompt | llm
+    chain = chat_prompt | llm | StrOutputParser()
 
     tuple_delimiter = " : "
     record_delimiter = "\n"
@@ -217,27 +218,21 @@ if __name__ == '__main__':
         "调节", "易感性", "保护", "验证", "引用"
     ]
     
-    chat_history = []
 
     t0 = time.time()
     for file_content in file_contents:
-        results = []
-        for chunk in file_content[2]:
-            t1 = time.time()
-            input_text = ''.join(chunk)
-            answer = chain.invoke({
-                "chat_history": chat_history,
-                "entity_types": entity_types,
-                "relationship_types": relationship_types,
-                "tuple_delimiter": tuple_delimiter,
-                "record_delimiter": record_delimiter,
-                "completion_delimiter": completion_delimiter,
-                "input_text": input_text
-            })
-            t2 = time.time()
-            results.append(answer.content)
-            print("块耗时：",t2-t1,"秒")
+        # 并行处理提高效率
+        inputs = [{
+            "entity_types": entity_types,
+            "relationship_types": relationship_types,
+            "tuple_delimiter": tuple_delimiter,
+            "record_delimiter": record_delimiter,
+            "completion_delimiter": completion_delimiter,
+            "input_text": ''.join(chunk)
+        } for chunk in file_content[2]]
+        results = chain.batch(inputs, config=RunnableConfig(max_concurrency=12))
             
+        t2 = time.time()
         print("文件耗时：",t2-t0,"秒")
         print("\n")
         file_content.append(results) # [4]:实体列表和关系列表(list)

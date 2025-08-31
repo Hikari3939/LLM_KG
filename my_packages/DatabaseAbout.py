@@ -1,10 +1,13 @@
-# 在Neo4j中创建文档与Chunk的图结构----------------------------------------------
-# https://python.langchain.com/v0.2/api_reference/community/graphs/langchain_community.graphs.neo4j_graph.Neo4jGraph.html#langchain_community.graphs.neo4j_graph.Neo4jGraph.add_graph_documents
-from langchain_core.documents import Document
+import re
 import hashlib
 import logging
 from typing import List
+from langchain_core.documents import Document
+from langchain_community.graphs.graph_document import GraphDocument, Node, Relationship
 
+from my_packages.MyNeo4j import MyNeo4jGraph
+
+# 在Neo4j中创建文档与Chunk的图结构
 # 创建Document结点，与Chunk之间按属性名fileName匹配。
 def create_Document(graph, type, uri, file_name):
     query = """
@@ -17,7 +20,6 @@ def create_Document(graph, type, uri, file_name):
 
 #创建Chunk结点并建立Chunk之间及与Document之间的关系
 #这个程序直接从Neo4j KG Builder拷贝引用，为了增加tokens属性稍作修改。
-#https://github.com/neo4j-labs/llm-graph-builder/blob/main/backend/src/make_relationships.py
 def create_relation_between_chunks(graph, file_name, chunks: List)->list:
     logging.info("creating FIRST_CHUNK and NEXT_CHUNK relationships between chunks")
     current_chunk_id = ""
@@ -100,14 +102,9 @@ def create_relation_between_chunks(graph, file_name, chunks: List)->list:
     
     return lst_chunks_including_hash
 
-# 提取的实体关系写入Neo4j-------------------------------------------------------
+# 提取的实体关系写入Neo4j
 # 由answer.content生成一个GraphDocument对象
 # 每个GraphDocument对象里增加一个metadata属性chunk_id，以便与前面建立的Chunk结点关联
-import re
-from langchain_community.graphs.graph_document import GraphDocument, Node, Relationship
-from langchain_core.documents import Document
-from MyNeo4j import MyNeo4jGraph
-
 # 将每个块提取的实体关系文本转换为LangChain的GraphDocument对象
 def convert_to_graph_document(chunk_id, input_text, result):
     # 提取节点和关系
@@ -128,13 +125,15 @@ def convert_to_graph_document(chunk_id, input_text, result):
         source_id, target_id, type, description, weight = match
         # 确保source节点存在
         if source_id not in nodes:
-            nodes[source_id] = Node(id=source_id, type="未知", properties={'description': 'No additional data'})
+            nodes[source_id] = Node(id=source_id, type="未知", properties={'description': ''})
+            
         # 确保target节点存在
         if target_id not in nodes:
-            nodes[target_id] = Node(id=target_id, type="未知", properties={'description': 'No additional data'})
+            nodes[target_id] = Node(id=target_id, type="未知", properties={'description': ''})
+            
         relationships.append(Relationship(source=nodes[source_id], target=nodes[target_id], type=type,
             properties={"description":description, "weight":float(weight)}))
-
+    
     # 创建图对象
     graph_document = GraphDocument(
         nodes=list(nodes.values()),
@@ -167,3 +166,74 @@ def merge_relationship_between_chunk_and_entites(graph: MyNeo4jGraph, graph_docu
           DETACH DELETE d
                 """
         graph.query(unwind_query, params={"batch_data": batch_data})
+
+# 用K近邻算法查找embedding相似值在阈值以内的近邻
+# 建立所有实体在内存投影的子图，GDS算法都要通过内存投影运行
+# G代表了子图的投影
+def knn_similarity(graph, gds):
+    G, _ = gds.graph.project(
+        "entities",                   #  Graph name
+        "__Entity__",                 #  Node projection
+        "*",                          #  Relationship projection
+        nodeProperties=["embedding"]  #  Configuration parameters
+    )
+
+    # 根据前面对Embedding模型的测试设置相似性阈值
+    similarity_threshold = 0.95
+
+    # 用KNN算法找出Embedding相似的实体，建立SIMILAR连接
+    gds.knn.mutate(
+    G,
+    nodeProperties=['embedding'],
+    mutateRelationshipType= 'SIMILAR',
+    mutateProperty= 'score',
+    similarityCutoff=similarity_threshold
+    )
+
+    # 弱连接组件算法（不分方向），从新识别的SIMILAR关系中识别相识的社区，社区编号存放在结点的wcc属性
+    gds.wcc.write(
+        G,
+        writeProperty="wcc",
+        relationshipTypes=["SIMILAR"]
+    )
+
+    # 找出潜在的相同实体
+    word_edit_distance = 3
+    potential_duplicate_candidates = graph.query(
+        """MATCH (e:`__Entity__`)
+        WHERE size(e.id) > 1 // 长度大于1个字符
+        WITH e.wcc AS community, collect(e) AS nodes, count(*) AS count
+        WHERE count > 1
+        UNWIND nodes AS node
+        // 计算文本距离
+        WITH distinct
+            [n IN nodes WHERE apoc.text.distance(toLower(node.id), toLower(n.id)) < $distance | n] AS intermediate_results
+        WHERE size(intermediate_results) > 1
+        // 对每个候选节点组，检查节点间是否至少共享一个非'__Entity__'且非'未知'的标签
+        WITH [ir IN intermediate_results WHERE ANY(other IN intermediate_results WHERE ir <> other AND 
+            ANY(label IN labels(ir) WHERE NOT label IN ['__Entity__', '未知'] AND label IN labels(other)))] AS filtered_results
+        WHERE size(filtered_results) > 1 // 确保筛选后仍有多个候选节点
+        WITH collect([res IN filtered_results | res.id]) AS results // 收集节点ID
+        // 合并共享元素的组
+        UNWIND range(0, size(results)-1, 1) as index
+        WITH results, index, results[index] as result
+        WITH apoc.coll.sort(reduce(acc = result, index2 IN range(0, size(results)-1, 1) |
+                CASE WHEN index <> index2 AND
+                    size(apoc.coll.intersection(acc, results[index2])) > 0
+                    THEN apoc.coll.union(acc, results[index2])
+                    ELSE acc
+                END
+        )) as combinedResult
+        WITH distinct(combinedResult) as combinedResult
+        // 额外过滤
+        WITH collect(combinedResult) as allCombinedResults
+        UNWIND range(0, size(allCombinedResults)-1, 1) as combinedResultIndex
+        WITH allCombinedResults[combinedResultIndex] as combinedResult, combinedResultIndex, allCombinedResults
+        WHERE NOT any(x IN range(0,size(allCombinedResults)-1,1)
+            WHERE x <> combinedResultIndex
+            AND apoc.coll.containsAll(allCombinedResults[x], combinedResult)
+        )
+        RETURN combinedResult
+        """, params={'distance': word_edit_distance})
+    
+    return potential_duplicate_candidates
