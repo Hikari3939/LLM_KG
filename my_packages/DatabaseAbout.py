@@ -198,22 +198,32 @@ def knn_similarity(graph, gds):
     )
 
     # 找出潜在的相同实体
-    word_edit_distance = 3
+    word_edit_distance = 3 # 文本距离小于3
     potential_duplicate_candidates = graph.query(
         """MATCH (e:`__Entity__`)
         WHERE size(e.id) > 1 // 长度大于1个字符
         WITH e.wcc AS community, collect(e) AS nodes, count(*) AS count
         WHERE count > 1
         UNWIND nodes AS node
-        // 计算文本距离
-        WITH distinct
-            [n IN nodes WHERE apoc.text.distance(toLower(node.id), toLower(n.id)) < $distance | n] AS intermediate_results
+        // 计算文本距离并筛选（即差异的字符数）
+        WITH distinct [
+            n IN nodes WHERE 
+            apoc.text.distance(toLower(node.id), toLower(n.id)) < $distance | n
+            ] AS intermediate_results
         WHERE size(intermediate_results) > 1
-        // 对每个候选节点组，检查节点间是否至少共享一个非'__Entity__'且非'未知'的标签
-        WITH [ir IN intermediate_results WHERE ANY(other IN intermediate_results WHERE ir <> other AND 
-            ANY(label IN labels(ir) WHERE NOT label IN ['__Entity__', '未知'] AND label IN labels(other)))] AS filtered_results
-        WHERE size(filtered_results) > 1 // 确保筛选后仍有多个候选节点
-        WITH collect([res IN filtered_results | res.id]) AS results // 收集节点ID
+        // 对每个候选节点组，检查节点间是否至少共享一个非'__Entity__'标签
+        // WITH [
+        //     ir IN intermediate_results 
+        //     WHERE ANY(
+        //         other IN intermediate_results 
+        //         WHERE ir <> other 
+        //         AND ANY(
+        //             label IN labels(ir) WHERE NOT label IN ['__Entity__'] AND label IN labels(other)
+        //             )
+        //         )
+        //     ] AS filtered_results
+        // WHERE size(filtered_results) > 1 // 确保筛选后仍有多个候选节点
+        WITH collect([res IN intermediate_results | res.id]) AS results // 收集节点ID
         // 合并共享元素的组
         UNWIND range(0, size(results)-1, 1) as index
         WITH results, index, results[index] as result
@@ -234,6 +244,10 @@ def knn_similarity(graph, gds):
             AND apoc.coll.containsAll(allCombinedResults[x], combinedResult)
         )
         RETURN combinedResult
-        """, params={'distance': word_edit_distance})
+        """, params={'distance': word_edit_distance}
+    )
+    
+    # 删除内存中的子图投影
+    G.drop()
     
     return potential_duplicate_candidates
