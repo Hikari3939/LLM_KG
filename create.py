@@ -30,21 +30,21 @@ if __name__ == '__main__':
     file_contents = DataLoader.read_txt_files(DIRECTORY_PATH)
     for file_content in file_contents: # [0]:文件名(string) [1]:文件内容(string)
         print("读入文件:", file_content[0])
-    print('\n')
+    print('')
 
     # 使用自定义函数进行分块
     for file_content in file_contents:
         print("分块文件:", file_content[0])
         chunks = DataLoader.chunk_text(file_content[1], chunk_size=500, overlap=50)
         file_content.append(chunks) # [2]:各块内容(list)
-    print('\n')
+    print('')
 
     # 打印分块结果
     for file_content in file_contents:
         print(f"File: {file_content[0]} Chunks: {len(file_content[2])}")
         for i, chunk in enumerate(file_content[2]):
             print(f"Chunk {i+1}: {len(chunk)} tokens.")
-    print('\n')
+    print('')
 
     # 在Neo4j中创建文档与Chunk的图结构
     # 连接数据库
@@ -54,7 +54,7 @@ if __name__ == '__main__':
         password=NEO4J_PASSWORD
     )
     print("数据库成功连接")
-    print('\n')
+    print('')
     
     # 清空数据库
     graph.query("MATCH (n) CALL (n) {DETACH DELETE n} IN TRANSACTIONS")
@@ -76,6 +76,8 @@ if __name__ == '__main__':
         model=INSTRUCT_MODEL,
         temperature=1.0
     )
+    print("LLM成功连接")
+    print('')
 
     # 系统提示词
     system_prompt="""
