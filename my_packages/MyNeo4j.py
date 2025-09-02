@@ -32,15 +32,15 @@ def my_get_node_import_query(baseEntityLabel: bool, include_source: bool) -> str
                         # 当原description和新description都不为空时，用分隔符连接
             "           WHEN (source.description IS NOT NULL AND source.description <> '') "
             "                 AND (row.properties.description IS NOT NULL AND row.properties.description <> '') "
-            "           THEN source.description + '；' + row.properties.description "
+            "               THEN source.description + '；' + row.properties.description "
                         # 当只有原description有值时，直接使用原值
             "           WHEN (source.description IS NOT NULL AND source.description <> '') "
             "                 AND (row.properties.description IS NULL OR row.properties.description = '') "
-            "           THEN source.description "
+            "               THEN source.description "
                         # 当只有新description有值时，直接使用新值
             "           WHEN (source.description IS NULL OR source.description = '') "
             "                 AND (row.properties.description IS NOT NULL AND row.properties.description <> '') "
-            "           THEN row.properties.description "
+            "               THEN row.properties.description "
                         # 其他情况（两者都为空）返回空字符串
             "           ELSE '' "
             "        END, "
