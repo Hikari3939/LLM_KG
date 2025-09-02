@@ -47,7 +47,9 @@ if __name__ == '__main__':
         os.environ["NEO4J_URI"],
         auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
     )
-    
     potential_duplicate_candidates = DatabaseAbout.knn_similarity(graph, gds)
         
     merged_entities = LLMAbout.decide_entity_merge(INSTRUCT_MODEL, potential_duplicate_candidates)
+    DatabaseAbout.merge_similar_entities(graph, embeddings, merged_entities)
+    print("相似实体成功合并")
+    print('')

@@ -3,6 +3,7 @@ import hashlib
 import logging
 from typing import List
 from langchain_core.documents import Document
+from langchain_community.vectorstores import Neo4jVector
 from langchain_community.graphs.graph_document import GraphDocument, Node, Relationship
 
 from my_packages.MyNeo4j import MyNeo4jGraph
@@ -164,7 +165,7 @@ def merge_relationship_between_chunk_and_entites(graph: MyNeo4jGraph, graph_docu
           MERGE (c)-[newR:MENTIONS]->(e)
           ON CREATE SET newR += properties(r)
           DETACH DELETE d
-                """
+        """
         graph.query(unwind_query, params={"batch_data": batch_data})
 
 # 用K近邻算法查找embedding相似值在阈值以内的近邻
@@ -179,7 +180,7 @@ def knn_similarity(graph, gds):
     )
 
     # 根据前面对Embedding模型的测试设置相似性阈值
-    similarity_threshold = 0.95
+    similarity_threshold = 0.94
 
     # 用KNN算法找出Embedding相似的实体，建立SIMILAR连接
     gds.knn.mutate(
@@ -200,8 +201,11 @@ def knn_similarity(graph, gds):
     # 找出潜在的相同实体
     word_edit_distance = 3 # 文本距离小于3
     potential_duplicate_candidates = graph.query(
-        """MATCH (e:`__Entity__`)
-        WHERE size(e.id) > 1 // 长度大于1个字符
+        """
+        MATCH (e:`__Entity__`)
+        WHERE size(e.id) > 1               // 长度大于1个字符
+                AND NOT e:未知             // 排除标签为'未知'的节点
+                AND e.id IS NOT NULL       // 确保id属性不为空
         WITH e.wcc AS community, collect(e) AS nodes, count(*) AS count
         WHERE count > 1
         UNWIND nodes AS node
@@ -210,19 +214,7 @@ def knn_similarity(graph, gds):
             n IN nodes WHERE 
             apoc.text.distance(toLower(node.id), toLower(n.id)) < $distance | n
             ] AS intermediate_results
-        WHERE size(intermediate_results) > 1
-        // 对每个候选节点组，检查节点间是否至少共享一个非'__Entity__'标签
-        // WITH [
-        //     ir IN intermediate_results 
-        //     WHERE ANY(
-        //         other IN intermediate_results 
-        //         WHERE ir <> other 
-        //         AND ANY(
-        //             label IN labels(ir) WHERE NOT label IN ['__Entity__'] AND label IN labels(other)
-        //             )
-        //         )
-        //     ] AS filtered_results
-        // WHERE size(filtered_results) > 1 // 确保筛选后仍有多个候选节点
+        WHERE size(intermediate_results) > 1 // 确保筛选后仍有多个候选节点
         WITH collect([res IN intermediate_results | res.id]) AS results // 收集节点ID
         // 合并共享元素的组
         UNWIND range(0, size(results)-1, 1) as index
@@ -251,3 +243,150 @@ def knn_similarity(graph, gds):
     G.drop()
     
     return potential_duplicate_candidates
+
+
+# 合并相似实体
+def merge_similar_entities(graph, embeddings, merged_entities):
+    # 合并节点
+    graph.query(
+        """
+        // 展开输入数据并为每组待合并节点生成一个列表
+        UNWIND $data AS candidates
+        CALL {
+        WITH candidates
+        MATCH (e:__Entity__) WHERE e.id IN candidates
+        RETURN collect(e) AS nodes
+        }
+        
+        WITH nodes, nodes[0] AS firstnode
+        // 添加临时标签到第一个节点
+        SET firstnode:__Combined__
+
+        // 收集所有节点的description值
+        WITH nodes, firstnode, [n IN nodes | n.description] AS descriptions
+        WITH nodes, firstnode, 
+        // 计算合并后的description
+        reduce(mergedDesc = "", desc IN descriptions | 
+            CASE 
+            WHEN mergedDesc IS NOT NULL AND mergedDesc <> "" AND desc IS NOT NULL AND desc <> "" 
+                THEN mergedDesc + "；" + desc
+            WHEN mergedDesc IS NOT NULL AND mergedDesc <> "" AND (desc IS NULL OR desc = "") 
+                THEN mergedDesc
+            WHEN (mergedDesc IS NULL OR mergedDesc = "") AND desc IS NOT NULL AND desc <> "" 
+                THEN desc
+            ELSE "" 
+            END) AS combinedDescription
+
+        // 设置合并后的description到第一个节点
+        SET firstnode.description = combinedDescription
+
+        WITH nodes
+        // 使用apoc.refactor.mergeNodes合并所有节点
+        CALL apoc.refactor.mergeNodes(
+            nodes, 
+            {
+                properties: {
+                    `.*`: 'discard' // 丢弃其他属性，保留第一个节点的属性
+                }
+            }
+        )
+        YIELD node
+        RETURN node
+        """, params={"data": merged_entities}
+    )
+
+    # 合并关系
+    graph.query(
+        """
+        // 找到所有合并后的节点
+        MATCH (n:__Combined__)
+        
+        // 处理出向关系
+        MATCH (n)-[r]->(target)
+        WITH n, target, type(r) AS relType, collect(r) AS rels
+        WHERE size(rels) > 1
+        CALL {
+            WITH rels
+            WITH rels, rels[0] AS firstrel, 
+                // 计算合并后的description
+                reduce(mergedDesc = "", r IN rels | 
+                    CASE 
+                    WHEN mergedDesc IS NOT NULL AND mergedDesc <> "" AND r.description IS NOT NULL AND r.description <> "" 
+                        THEN mergedDesc + "；" + r.description
+                    WHEN mergedDesc IS NOT NULL AND mergedDesc <> "" AND (r.description IS NULL OR r.description = "") 
+                        THEN mergedDesc
+                    WHEN (mergedDesc IS NULL OR mergedDesc = "") AND r.description IS NOT NULL AND r.description <> "" 
+                        THEN r.description
+                    ELSE "" 
+                    END) AS combinedDescription,
+                // 计算最大weight
+                reduce(maxWeight = 0, r IN rels | 
+                    CASE 
+                    WHEN r.weight IS NOT NULL AND r.weight > maxWeight 
+                        THEN r.weight 
+                    ELSE maxWeight 
+                    END) AS maxWeight
+            
+            // 保留第一个关系，更新其属性
+            SET firstrel.description = combinedDescription
+            SET firstrel.weight = maxWeight
+            
+            // 删除其他重复关系
+            WITH rels
+            UNWIND range(1, size(rels)-1) AS index
+            DELETE rels[index]
+        }
+        
+        // 处理入向关系
+        MATCH (source)-[r]->(n)
+        WITH source, n, type(r) AS relType, collect(r) AS rels
+        WHERE size(rels) > 1
+        CALL {
+            WITH rels
+            WITH rels, rels[0] AS firstrel, 
+                // 计算合并后的description
+                reduce(mergedDesc = "", r IN rels | 
+                    CASE 
+                    WHEN mergedDesc IS NOT NULL AND mergedDesc <> "" AND r.description IS NOT NULL AND r.description <> "" 
+                        THEN mergedDesc + "；" + r.description
+                    WHEN mergedDesc IS NOT NULL AND mergedDesc <> "" AND (r.description IS NULL OR r.description = "") 
+                        THEN mergedDesc
+                    WHEN (mergedDesc IS NULL OR mergedDesc = "") AND r.description IS NOT NULL AND r.description <> "" 
+                        THEN r.description
+                    ELSE "" 
+                    END) AS combinedDescription,
+                // 计算最大weight
+                reduce(maxWeight = 0, r IN rels | 
+                    CASE 
+                    WHEN r.weight IS NOT NULL AND r.weight > maxWeight 
+                        THEN r.weight 
+                    ELSE maxWeight 
+                    END) AS maxWeight
+            
+            // 保留第一个关系，更新其属性
+            SET firstrel.description = combinedDescription
+            SET firstrel.weight = maxWeight
+            
+            // 删除其他重复关系
+            WITH rels
+            UNWIND range(1, size(rels)-1) AS index
+            DELETE rels[index]
+        }
+        """
+    )
+    
+    # 对合并后的节点进行Embedding
+    vector = Neo4jVector.from_existing_graph(
+        embeddings,
+        node_label='__Combined__',
+        text_node_properties=['id', 'description'],
+        embedding_node_property='embedding'
+    )
+    
+    # 删除临时标签
+    graph.query(
+        """
+        MATCH (n:__Combined__)
+        REMOVE n:__Combined__
+        """
+    )
