@@ -1,16 +1,13 @@
 import os
 import re
 import pprint
-from typing import Dict, List, Any, TypedDict, Annotated, Literal, Sequence
+from typing import TypedDict, Annotated, Literal, Sequence
 from dotenv import load_dotenv
 from langchain_deepseek import ChatDeepSeek
 from langchain_community.vectorstores import Neo4jVector
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_history_aware_retriever
 from langgraph.graph import StateGraph, END, START
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -144,7 +141,6 @@ def _score_by_keywords(text: str, weights: dict) -> tuple:
             hits.append(key)
     return score, hits
 
-
 def _score_by_patterns(text: str, patterns: list) -> tuple:
     """
     根据问句模板/正则模式打分，分别累加到local/global。
@@ -163,7 +159,6 @@ def _score_by_patterns(text: str, patterns: list) -> tuple:
                 global_score += weight
                 global_hits.append(pat.pattern)
     return (local_score, local_hits), (global_score, global_hits)
-
 
 def _score_rules(text: str) -> dict:
     """
