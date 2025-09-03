@@ -239,11 +239,17 @@ def knn_similarity(graph, gds):
         """, params={'distance': word_edit_distance}
     )
     
+    # 删除临时属性
+    graph.query(
+        """
+        MATCH (n:__Entity__)
+        REMOVE n.wcc
+        """
+    )
     # 删除内存中的子图投影
     G.drop()
     
     return potential_duplicate_candidates
-
 
 # 合并相似实体
 def merge_similar_entities(graph, embeddings, merged_entities):
@@ -390,3 +396,68 @@ def merge_similar_entities(graph, embeddings, merged_entities):
         REMOVE n:__Combined__
         """
     )
+
+# 使用Leiden社区发现算法构建社区
+def build_communities(graph, gds):
+    # 建立子图投影
+    G, result = gds.graph.project(
+        "communities",  #  Graph name
+        "__Entity__",  #  Node projection
+        {
+            "_ALL_": {
+                "type": "*",
+                "orientation": "UNDIRECTED",
+                "properties": {"weight": {"property": "*", "aggregation": "COUNT"}},
+            }
+        },
+    )
+
+    # 执行Leiden社区发现算法
+    gds.leiden.write(
+        G,
+        writeProperty="communities",
+        includeIntermediateCommunities=True,
+        relationshipWeightProperty="weight",
+    )
+
+    # 为社区创建一个不同的节点，并将其层次结构表示为一个相互连接的图
+    graph.query("CREATE CONSTRAINT IF NOT EXISTS FOR (c:__Community__) REQUIRE c.id IS UNIQUE;")
+    graph.query(
+        """
+        MATCH (e:`__Entity__`)
+        UNWIND range(0, size(e.communities) - 1 , 1) AS index
+        CALL {
+        WITH e, index
+        WITH e, index
+        WHERE index = 0
+        MERGE (c:`__Community__` {id: toString(index) + '-' + toString(e.communities[index])})
+        ON CREATE SET c.level = index
+        MERGE (e)-[:IN_COMMUNITY]->(c)
+        RETURN count(*) AS count_0
+        }
+        CALL {
+        WITH e, index
+        WITH e, index
+        WHERE index > 0
+        MERGE (current:`__Community__` {id: toString(index) + '-' + toString(e.communities[index])})
+        ON CREATE SET current.level = index
+        MERGE (previous:`__Community__` {id: toString(index - 1) + '-' + toString(e.communities[index - 1])})
+        ON CREATE SET previous.level = index - 1
+        MERGE (previous)-[:IN_COMMUNITY]->(current)
+        RETURN count(*) AS count_1
+        }
+        RETURN count(*)
+        """
+    )
+    
+    # 为社区增加权重属性community_rank，统计该社区连接了多少个不同的文本块
+    graph.query(
+        """
+        MATCH (c:`__Community__`)<-[:IN_COMMUNITY*]-(:`__Entity__`)<-[:MENTIONS]-(d:`__Chunk__`)
+        WITH c, count(distinct d) AS rank
+        SET c.community_rank = rank;
+        """
+    )
+
+    # 处理完毕，删除内存中的子图投影
+    G.drop()

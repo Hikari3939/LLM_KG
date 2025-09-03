@@ -7,7 +7,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.config import RunnableConfig
 
 from my_packages import DataLoader
-from my_packages import DatabaseAbout
+from my_packages import GraphAbout
 from my_packages.MyNeo4j import MyNeo4jGraph
 
 # 加载环境变量
@@ -61,13 +61,13 @@ if __name__ == '__main__':
 
     # 创建Document结点
     for file_content in file_contents:
-        doc = DatabaseAbout.create_Document(graph, "local", DIRECTORY_PATH, file_content[0])
+        doc = GraphAbout.create_Document(graph, "local", DIRECTORY_PATH, file_content[0])
 
     #创建Chunk结点并建立Chunk之间及与Document之间的关系
     for file_content in file_contents:
         file_name = file_content[0]
         chunks = file_content[2]
-        result = DatabaseAbout.create_relation_between_chunks(graph, file_name , chunks)
+        result = GraphAbout.create_relation_between_chunks(graph, file_name , chunks)
         file_content.append(result) # [3]:各块的id和各块document格式的内容(list)
 
     # 使用大模型提取实体和关系
@@ -246,7 +246,7 @@ if __name__ == '__main__':
         
         graph_documents = []
         for chunk, result in zip(chunks, results):
-            graph_document =  DatabaseAbout.convert_to_graph_document(chunk["chunk_id"] ,chunk["chunk_doc"].page_content, result)
+            graph_document =  GraphAbout.convert_to_graph_document(chunk["chunk_id"] ,chunk["chunk_doc"].page_content, result)
             graph_documents.append(graph_document) # 根据实体和关系生成的图对象(GraphDocument)
         file_content.append(graph_documents) # [5]:图对象列表(list)
         
@@ -270,7 +270,7 @@ if __name__ == '__main__':
         for chunk in file_content[3]:
             graph_documents_chunk_chunk_Id.append(chunk["chunk_id"])
         
-        DatabaseAbout.merge_relationship_between_chunk_and_entites(graph, graph_documents_chunk_chunk_Id)
+        GraphAbout.merge_relationship_between_chunk_and_entites(graph, graph_documents_chunk_chunk_Id)
     
     # 关闭数据库
     graph.close()
