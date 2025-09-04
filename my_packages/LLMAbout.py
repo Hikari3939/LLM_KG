@@ -1,3 +1,4 @@
+import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_deepseek import ChatDeepSeek
@@ -172,7 +173,8 @@ def community_abstract(graph):
     )
 
     community_chain = community_prompt | llm | StrOutputParser()
-        
+    
+    t0 = time.time()
     # 准备批量处理的输入
     batch_inputs = []
     community_id_map = {}  # 用于存储索引和对应的社区ID
@@ -191,7 +193,10 @@ def community_abstract(graph):
             "community": community_id_map[idx],
             "summary": summary
         })
-    
+    t2 = time.time()
+    print("摘要耗时：",t2-t0,"秒")
+    print("\n")
+
     # 存储社区摘要
     graph.query("""
     UNWIND $data AS row

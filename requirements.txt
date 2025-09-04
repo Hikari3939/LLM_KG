@@ -7,7 +7,6 @@ langgraph
 langsmith
 langchain
 python-dotenv
-wikipedia-api
 langchain-core
 beautifulsoup4
 langchain-neo4j

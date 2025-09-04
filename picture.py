@@ -1,4 +1,5 @@
 import os
+import time
 from dotenv import load_dotenv
 
 from my_packages.GetWikiPicture import Neo4jImageUpdater
@@ -15,12 +16,12 @@ if __name__ == "__main__":
 
     # 为所有实体添加图片
     label = "__Entity__"
-    print(f"\n正在处理标签: {label}")
-    results = updater.process_nodes_by_label(label, delay=1.0)
-    print(f"处理完成: 总共 {results['total']} 个节点, "
-            f"成功 {results['success']}, "
-            f"维基百科中不存在 {results['not_found']}, "
-            f"失败 {results['failed']}")
-    
+    t0 = time.time()
+    results = updater.process_nodes_by_label(label)
+    t2 = time.time()
+    print("添加图片总耗时：",(t2-t0)/60,"分钟")
+    print("\n")
+
+
     # 关闭连接
     updater.close()
