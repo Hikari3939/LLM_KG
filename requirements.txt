@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 beautifulsoup4==4.13.5
 graphdatascience==1.16
 hanlp==2.1.1
@@ -16,3 +17,23 @@ python-dotenv==1.1.1
 requests==2.32.5
 zhconv
 wikipedia-api
+=======
+hanlp
+neo4j
+zhconv
+requests
+pydantic
+langgraph
+langsmith
+langchain
+python-dotenv
+langchain-core
+beautifulsoup4
+langchain-neo4j
+graphdatascience
+typing-extensions
+langchain-deepseek
+langchain-community
+langchain-huggingface
+sentence-transformers
+>>>>>>> c687a5d8f7d25d0641bc5f15c586dbef0d75c786

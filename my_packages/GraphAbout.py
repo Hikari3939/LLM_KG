@@ -382,7 +382,7 @@ def merge_similar_entities(graph, embeddings, merged_entities):
     )
     
     # 对合并后的节点进行Embedding
-    vector = Neo4jVector.from_existing_graph(
+    _ = Neo4jVector.from_existing_graph(
         embeddings,
         node_label='__Combined__',
         text_node_properties=['id', 'description'],
@@ -397,10 +397,10 @@ def merge_similar_entities(graph, embeddings, merged_entities):
         """
     )
 
-# 使用Leiden社区发现算法构建社区
+# 使用SLLPA社区发现算法构建社区
 def build_communities(graph, gds):
     # 建立子图投影
-    G, result = gds.graph.project(
+    G, _ = gds.graph.project(
         "communities",  #  Graph name
         "__Entity__",  #  Node projection
         {
@@ -412,12 +412,11 @@ def build_communities(graph, gds):
         },
     )
 
-    # 执行Leiden社区发现算法
-    gds.leiden.write(
+    # 调用sllpa算法	
+    gds.sllpa.write(
         G,
-        writeProperty="communities",
-        includeIntermediateCommunities=True,
-        relationshipWeightProperty="weight",
+        maxIterations=10000,
+        writeProperty="communityIds"
     )
 
     # 为社区创建一个不同的节点，并将其层次结构表示为一个相互连接的图
@@ -425,26 +424,13 @@ def build_communities(graph, gds):
     graph.query(
         """
         MATCH (e:`__Entity__`)
-        UNWIND range(0, size(e.communities) - 1 , 1) AS index
+        UNWIND range(0, size(e.communityIds) - 1 , 1) AS index
         CALL {
         WITH e, index
-        WITH e, index
-        WHERE index = 0
-        MERGE (c:`__Community__` {id: toString(index) + '-' + toString(e.communities[index])})
-        ON CREATE SET c.level = index
+        MERGE (c:`__Community__` {id: '0-'+toString(e.communityIds[index])})
+        ON CREATE SET c.level = 0
         MERGE (e)-[:IN_COMMUNITY]->(c)
         RETURN count(*) AS count_0
-        }
-        CALL {
-        WITH e, index
-        WITH e, index
-        WHERE index > 0
-        MERGE (current:`__Community__` {id: toString(index) + '-' + toString(e.communities[index])})
-        ON CREATE SET current.level = index
-        MERGE (previous:`__Community__` {id: toString(index - 1) + '-' + toString(e.communities[index - 1])})
-        ON CREATE SET previous.level = index - 1
-        MERGE (previous)-[:IN_COMMUNITY]->(current)
-        RETURN count(*) AS count_1
         }
         RETURN count(*)
         """
