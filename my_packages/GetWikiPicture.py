@@ -1,10 +1,18 @@
-import neo4j
-import wikipediaapi
-import requests
-import time
-import zhconv  # 用于简繁转换
 from typing import Optional, List, Dict
 from urllib.parse import quote
+import wikipediaapi
+import requests
+import logging
+import zhconv  # 用于简繁转换
+import neo4j
+import time
+
+# 设置日志记录
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class Neo4jImageUpdater:
     def __init__(self, uri: str, user: str, password: str):
@@ -20,7 +28,7 @@ class Neo4jImageUpdater:
         self.wiki_wiki = wikipediaapi.Wikipedia(
             language='zh',  # 使用中文维基百科
             extract_format=wikipediaapi.ExtractFormat.WIKI,
-            user_agent="Neo4jImageUpdater/1.0 (your_email@example.com)"
+            user_agent="Neo4jImageUpdater/1.0 (fatails_hikari@yeah.net)"
         )
 
     def close(self):
@@ -48,51 +56,6 @@ class Neo4jImageUpdater:
             logger.error(f"查询节点时出错: {e}")
             return []
 
-    def get_all_labels(self) -> List[str]:
-        """
-        获取数据库中所有的节点标签
-
-        Returns:
-            标签列表
-        """
-        query = "CALL db.labels() YIELD label RETURN label"
-
-        try:
-            with self.driver.session() as session:
-                result = session.run(query)
-                labels = [record["label"] for record in result]
-                return labels
-        except Exception as e:
-            logger.error(f"查询标签时出错: {e}")
-            return []
-
-    def find_node_by_id(self, node_id: str) -> Optional[dict]:
-        """
-        根据节点ID查找节点
-
-        Args:
-            node_id: 节点ID
-
-        Returns:
-            节点属性字典或None（如果未找到）
-        """
-        query = (
-            "MATCH (n {id: $node_id}) "
-            "RETURN n.id as id, n.description as description"
-        )
-
-        with self.driver.session() as session:
-            result = session.run(query, node_id=node_id)
-            record = result.single()
-
-            if record:
-                return {
-                    "id": record["id"],
-                    "description": record["description"]
-                }
-            else:
-                return None
-
     def search_wiki_image(self, search_term: str) -> Optional[str]:
         """
         在维基百科中搜索术语并获取最相关的图片URL
@@ -113,7 +76,7 @@ class Neo4jImageUpdater:
 
             response = requests.get(url, headers=headers)
 
-            # 只有200状态码表示页面确切存在
+            # 200状态码表示页面确切存在
             if response.status_code == 200:
                 data = response.json()
                 # 检查是否有缩略图
@@ -123,10 +86,10 @@ class Neo4jImageUpdater:
                     logger.warning(f"页面 '{search_term}' 存在但没有缩略图")
                     return None
             elif response.status_code == 404:
-                # 页面不存在，不记录警告，这是正常情况
+                # 页面不存在，不记录警告
                 return None
             else:
-                # 其他HTTP错误（如500）可能是临时问题，记录警告
+                # 其他HTTP错误（如500），记录警告
                 logger.warning(f"搜索 '{search_term}' 时收到状态码 {response.status_code}")
                 return None
 
@@ -244,7 +207,7 @@ class Neo4jImageUpdater:
             logger.error(f"未找到ID为 '{node_id}' 的节点")
             return False
 
-        # 搜索维基百科图片（精确搜索，只返回确切存在的页面图片）
+        # 搜索维基百科图片（精确搜索）
         image_url = self.search_wiki_image_with_retry(node_id)
         if not image_url:
             logger.info(f"节点 '{node_id}' 在维基百科中不存在对应页面，跳过")
@@ -323,21 +286,3 @@ class Neo4jImageUpdater:
             logger.info(f"失败的节点: {', '.join(results['failed_nodes'])}")
 
         return results
-
-    def list_all_labels(self) -> List[str]:
-        """
-        列出数据库中所有标签
-
-        Returns:
-            标签列表
-        """
-        labels = self.get_all_labels()
-        if labels:
-            logger.info("数据库中的标签:")
-            for label in labels:
-                logger.info(f" - {label}")
-        else:
-            logger.warning("未找到任何标签")
-
-        return labels
-
