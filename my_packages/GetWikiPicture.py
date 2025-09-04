@@ -201,12 +201,6 @@ class Neo4jImageUpdater:
         """
         logger.info(f"处理节点: {node_id}")
 
-        # 查找节点
-        node = self.find_node_by_id(node_id)
-        if not node:
-            logger.error(f"未找到ID为 '{node_id}' 的节点")
-            return False
-
         # 搜索维基百科图片（精确搜索）
         image_url = self.search_wiki_image_with_retry(node_id)
         if not image_url:
@@ -261,12 +255,7 @@ class Neo4jImageUpdater:
                 if success:
                     results['success'] += 1
                 else:
-                    # 区分是节点不存在还是其他错误
-                    if not self.find_node_by_id(node_id):
-                        results['failed'] += 1
-                        results['failed_nodes'].append(node_id)
-                    else:
-                        results['not_found'] += 1
+                    results['not_found'] += 1
             except Exception as e:
                 logger.error(f"处理节点 '{node_id}' 时发生异常: {e}")
                 results['failed'] += 1

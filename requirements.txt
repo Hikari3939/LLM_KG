@@ -1,31 +1,19 @@
-beautifulsoup4==4.13.5
-graphdatascience==1.16
-hanlp==2.1.1
-langchain==0.3.27
-langchain_community==0.3.29
-langchain_core==0.3.75
-langchain_deepseek==0.1.4
-langchain_huggingface==0.3.1
-langchain_neo4j==0.5.0
-<<<<<<< HEAD
-langgraph==0.2.17
-langsmith==0.2.17
-neo4j==5.28.1
-typing-extensions==4.8.0
-pydantic==2.11.7
-python-dotenv==1.1.1
-Requests==2.32.5
-=======
-neo4j==5.28.1
-pydantic==2.11.7
-python-dotenv==1.1.1
-<<<<<<< HEAD
-requests
-beautifulsoup4
-zhconv
-wikipedia-api
+hanlp
 neo4j
-=======
-Requests==2.32.5
->>>>>>> 41027883b1aa3c325285e801bbda6743688d457d
->>>>>>> a533d578c35d31720953323b8a711f3ebbe2f556
+zhconv
+requests
+pydantic
+langgraph
+langsmith
+langchain
+python-dotenv
+wikipedia-api
+langchain-core
+beautifulsoup4
+langchain-neo4j
+graphdatascience
+typing-extensions
+langchain-deepseek
+langchain-community
+langchain-huggingface
+sentence-transformers

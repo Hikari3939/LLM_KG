@@ -133,11 +133,11 @@ def prepare_string(data):
 
 # 进行摘要并存入数据库
 def community_abstract(graph):
-    # 检索0和1级的社区所包含的结点与边的信息
+    # 检索社区所包含的结点与边的信息
     community_info = graph.query(
         """
         MATCH (c:`__Community__`)<-[:IN_COMMUNITY*]-(e:__Entity__)
-        WHERE c.level IN [0,1]
+        WHERE c.level IN [0]
         WITH c, collect(e ) AS nodes
         WHERE size(nodes) > 3
         CALL apoc.path.subgraphAll(nodes[0], {
