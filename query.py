@@ -1,7 +1,7 @@
 # 导入检索器
 from my_packages.QueryAbout import local_retriever, global_retriever, cypher_retriever
 
-def main():
+if __name__ == "__main__":
     while True:
         query = input("\n请输入问题 (输入 'exit' 退出): ").strip()
         
@@ -40,6 +40,3 @@ def main():
             print("回答:", cypher_response)
         except Exception as e:
             print(f"Cypher查询失败: {str(e)}")
-
-if __name__ == "__main__":
-    main()
