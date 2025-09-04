@@ -168,7 +168,7 @@ class Neo4jImageUpdater:
         """
         query = (
             "MATCH (n {id: $node_id}) "
-            "SET n.image_url = $image_url, n.image_updated = timestamp() "
+            "SET n.image_url = $image_url "
             "RETURN n"
         )
 
