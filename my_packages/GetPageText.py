@@ -14,15 +14,12 @@ HEADERS = {
 # 不需要的末尾章节标题
 STOP_SECTIONS = ["参考文献", "延伸阅读", "参见", "外部链接"]
 
-from opencc import OpenCC
-cc = OpenCC('t2s')  # 繁体转简体
-
 def get_page_text(url):
     resp = requests.get(url, headers=HEADERS)
-    resp.raise_for_status()
+    resp.raise_for_status() # 失败处理
 
     soup = BeautifulSoup(resp.text, "html.parser")
-    content_div = soup.find("div", {"id": "mw-content-text"})
+    content_div = soup.find("div", {"id": "mw-content-text"}) # 选择正文
     data = []
     links = {}
 
@@ -32,9 +29,9 @@ def get_page_text(url):
             continue
         if any(stop in text for stop in STOP_SECTIONS):
             break
-        data.append(text)
+        data.append(text) # 将文本加入正文列表
 
-        for a in elem.find_all("a"):
+        for a in elem.find_all("a"): # 遍历段落中的 <a> 标签（超链接)
             href = a.get("href")
             if href and href.startswith("/wiki/") and ":" not in href:
                 title = a.get("title") or a.get_text(strip=True)

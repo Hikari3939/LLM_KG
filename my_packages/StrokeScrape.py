@@ -16,24 +16,18 @@ REQUEST_DELAY = 1    # 请求延迟（秒）
 STOP_SECTIONS = ["参考文献", "延伸阅读", "参见", "外部链接"]
 
 def stroke_scrape(max_depth=None):
-    """
-    爬取 '脑卒中' 主页面及相关页面
-    :param max_depth: 最大爬取深度，如果为None则使用全局配置
-    """
-    # 使用参数或全局配置
-    actual_max_depth = max_depth if max_depth is not None else MAX_CRAWL_DEPTH
+
+    actual_max_depth =  MAX_CRAWL_DEPTH
     
     logs = []
     logs.append(f"开始爬取‘脑卒中’主页面（最大深度：{actual_max_depth}）…")
     
     stroke_url = BASE_URL + "/wiki/脑卒中"
     stroke_data, stroke_links = get_page_text(stroke_url)
-    logs.append(f"主页面爬取完成，共 {len(stroke_data)} 条内容")
 
     # 提取主页面内链
     logs.append("提取主页面内链…")
     related_pages = dict(stroke_links)
-    logs.append(f"找到 {len(related_pages)} 个相关页面。\n")
 
     results = {"脑卒中": (stroke_data, 0)}  # 存储内容和深度
     report = []
@@ -43,7 +37,7 @@ def stroke_scrape(max_depth=None):
     for title, url in related_pages.items():
         queue.append((title, url, 1))
     
-    visited = set(["脑卒中"])
+    visited = set(["脑卒中"]) # visited集合防止重复爬取页面
 
     idx = 0
     while queue:
@@ -63,7 +57,6 @@ def stroke_scrape(max_depth=None):
         remaining = len([p for p in related_pages.items() if p[0] not in visited])
         log_entry = f"[{idx}/{remaining} of {total_discovered}] 深度{depth}：{title}"
         print(log_entry)
-        logs.append(log_entry)
 
         try:
             page_data, page_links = get_page_text(url)
