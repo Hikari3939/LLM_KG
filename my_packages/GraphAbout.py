@@ -239,11 +239,17 @@ def knn_similarity(graph, gds):
         """, params={'distance': word_edit_distance}
     )
     
+    # 删除临时属性
+    graph.query(
+        """
+        MATCH (n:__Entity__)
+        REMOVE n.wcc
+        """
+    )
     # 删除内存中的子图投影
     G.drop()
     
     return potential_duplicate_candidates
-
 
 # 合并相似实体
 def merge_similar_entities(graph, embeddings, merged_entities):
@@ -376,7 +382,7 @@ def merge_similar_entities(graph, embeddings, merged_entities):
     )
     
     # 对合并后的节点进行Embedding
-    vector = Neo4jVector.from_existing_graph(
+    _ = Neo4jVector.from_existing_graph(
         embeddings,
         node_label='__Combined__',
         text_node_properties=['id', 'description'],
@@ -390,3 +396,54 @@ def merge_similar_entities(graph, embeddings, merged_entities):
         REMOVE n:__Combined__
         """
     )
+
+# 使用SLLPA社区发现算法构建社区
+def build_communities(graph, gds):
+    # 建立子图投影
+    G, _ = gds.graph.project(
+        "communities",  #  Graph name
+        "__Entity__",  #  Node projection
+        {
+            "_ALL_": {
+                "type": "*",
+                "orientation": "UNDIRECTED",
+                "properties": {"weight": {"property": "*", "aggregation": "COUNT"}},
+            }
+        },
+    )
+
+    # 调用sllpa算法	
+    gds.sllpa.write(
+        G,
+        maxIterations=10000,
+        writeProperty="communityIds"
+    )
+
+    # 为社区创建一个不同的节点，并将其层次结构表示为一个相互连接的图
+    graph.query("CREATE CONSTRAINT IF NOT EXISTS FOR (c:__Community__) REQUIRE c.id IS UNIQUE;")
+    graph.query(
+        """
+        MATCH (e:`__Entity__`)
+        UNWIND range(0, size(e.communityIds) - 1 , 1) AS index
+        CALL {
+        WITH e, index
+        MERGE (c:`__Community__` {id: '0-'+toString(e.communityIds[index])})
+        ON CREATE SET c.level = 0
+        MERGE (e)-[:IN_COMMUNITY]->(c)
+        RETURN count(*) AS count_0
+        }
+        RETURN count(*)
+        """
+    )
+    
+    # 为社区增加权重属性community_rank，统计该社区连接了多少个不同的文本块
+    graph.query(
+        """
+        MATCH (c:`__Community__`)<-[:IN_COMMUNITY*]-(:`__Entity__`)<-[:MENTIONS]-(d:`__Chunk__`)
+        WITH c, count(distinct d) AS rank
+        SET c.community_rank = rank;
+        """
+    )
+
+    # 处理完毕，删除内存中的子图投影
+    G.drop()

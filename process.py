@@ -4,7 +4,7 @@ from graphdatascience import GraphDataScience
 from langchain_community.vectorstores import Neo4jVector
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from my_packages import DatabaseAbout
+from my_packages import GraphAbout
 from my_packages import LLMAbout
 from my_packages.MyNeo4j import MyNeo4jGraph
 
@@ -15,9 +15,6 @@ NEO4J_USERNAME = os.environ["NEO4J_USERNAME"]
 NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 
 DEEPSEEK_API_KEY = os.environ["DEEPSEEK_API_KEY"]
-
-# 指定模型名称
-INSTRUCT_MODEL = 'deepseek-chat'
 
 if __name__ == '__main__':
     graph = MyNeo4jGraph(refresh_schema=False)
@@ -47,9 +44,20 @@ if __name__ == '__main__':
         os.environ["NEO4J_URI"],
         auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
     )
-    potential_duplicate_candidates = DatabaseAbout.knn_similarity(graph, gds)
+    potential_duplicate_candidates = GraphAbout.knn_similarity(graph, gds) # K近邻算法初步筛选
         
-    merged_entities = LLMAbout.decide_entity_merge(INSTRUCT_MODEL, potential_duplicate_candidates)
-    DatabaseAbout.merge_similar_entities(graph, embeddings, merged_entities)
+    # LLM进一步筛选
+    merged_entities = LLMAbout.decide_entity_merge(potential_duplicate_candidates)
+    GraphAbout.merge_similar_entities(graph, embeddings, merged_entities)
     print("相似实体成功合并")
+    print('')
+    
+    # 构建社区
+    GraphAbout.build_communities(graph, gds)
+    print("社区构建完成")
+    print('')
+
+    # 生成摘要
+    LLMAbout.community_abstract(graph)
+    print("社区摘要完成")
     print('')

@@ -1,51 +1,42 @@
-import os
-from dotenv import load_dotenv
-from langchain_deepseek import ChatDeepSeek
-from my_packages.MyNeo4j import MyNeo4jGraph
-from langchain_neo4j import GraphCypherQAChain
+# 导入检索器
+from my_packages.QueryAbout import local_retriever, global_retriever, cypher_retriever
 
-# 加载环境变量
-load_dotenv(".env")
-NEO4J_URI = os.environ["NEO4J_URI"]
-NEO4J_USERNAME = os.environ["NEO4J_USERNAME"]
-NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
-
-DEEPSEEK_API_KEY = os.environ["DEEPSEEK_API_KEY"]
-
-# 指定模型名称
-INSTRUCT_MODEL = 'deepseek-chat'
-
-if __name__ == '__main__':
-    # 连接neo4j数据库
-    graph = MyNeo4jGraph(
-        url=NEO4J_URI, 
-        username=NEO4J_USERNAME, 
-        password=NEO4J_PASSWORD,
-        enhanced_schema=True
-    )
-    print("数据库成功连接")
-
-    # 刷新数据库结构信息
-    graph.refresh_schema()
-
-    # 连接大模型
-    llm = ChatDeepSeek(
-        model = INSTRUCT_MODEL,
-        temperature=0
-    )
-    
-    #构建查询工具链
-    chain = GraphCypherQAChain.from_llm(
-        graph=graph, llm=llm, verbose=True, allow_dangerous_requests=True
-    )
-
+if __name__ == "__main__":
     while True:
-        questions = input("\n请输入问题：")
-        if questions!="exit":
-            answer = chain.invoke({"query":questions})
-            print(answer['result'])
-        else:
+        query = input("\n请输入问题 (输入 'exit' 退出): ").strip()
+        
+        if query.lower() == 'exit':
             break
-
-    # 关闭数据库
-    graph.close()
+            
+        if not query:
+            print("问题不能为空，请重新输入")
+            continue
+            
+        print(f"\n查询问题: {query}")
+        
+        # 局部检索
+        print("\n局部检索结果:")
+        print("-" * 30)
+        try:
+            local_response = local_retriever(query)
+            print("回答:", local_response)
+        except Exception as e:
+            print(f"局部检索失败: {str(e)}")
+        
+        # 全局检索
+        print("\n全局检索结果:")
+        print("-" * 30)
+        try:
+            global_response = global_retriever(query, level=0)
+            print("回答:", global_response)
+        except Exception as e:
+            print(f"全局检索失败: {str(e)}")
+        
+        # Cypher查询
+        print("\nCypher查询结果:")
+        print("-" * 30)
+        try:
+            cypher_response = cypher_retriever(query)
+            print("回答:", cypher_response)
+        except Exception as e:
+            print(f"Cypher查询失败: {str(e)}")

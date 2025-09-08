@@ -1,6 +1,8 @@
+import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_deepseek import ChatDeepSeek
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.config import RunnableConfig
 from langchain.prompts import (
     ChatPromptTemplate,
@@ -8,8 +10,11 @@ from langchain.prompts import (
     SystemMessagePromptTemplate
 )
 
+# 指定模型名称
+INSTRUCT_MODEL = 'deepseek-chat'
+
 # 由LLM来最终决定哪些实体该合并 
-def decide_entity_merge(llm_name, candidates):
+def decide_entity_merge(candidates):
     system_template = """
     你是一名数据处理助理。您的任务是识别列表中的重复实体，并决定应合并哪些实体。 
     这些实体在格式或内容上可能略有不同，但本质上指的是同一个实体。运用你的分析技能来确定重复的实体。 
@@ -74,7 +79,7 @@ def decide_entity_merge(llm_name, candidates):
 
     # 连接模型
     structured_llm  = ChatDeepSeek(
-        model=llm_name,
+        model=INSTRUCT_MODEL,
         temperature=1.0
     ).with_structured_output(Disambiguate)
     
@@ -100,3 +105,101 @@ def decide_entity_merge(llm_name, candidates):
                     merged_entities.append(el.entities)
     
     return merged_entities
+
+# 使用LLM进行社区摘要
+# 转换社区信息为字符串
+def prepare_string(data):
+    nodes_str = "Nodes are:\n"
+    for node in data['nodes']:
+        node_id = node['id']
+        node_type = node['type']
+        if 'description' in node and node['description']:
+            node_description = f", description: {node['description']}"
+        else:
+            node_description = ""
+        nodes_str += f"id: {node_id}, type: {node_type}{node_description}\n"
+
+    rels_str = "Relationships are:\n"
+    for rel in data['rels']:
+        start = rel['start']
+        end = rel['end']
+        rel_type = rel['type']
+        if 'description' in rel and rel['description']:
+            description = f", description: {rel['description']}"
+        else:
+            description = ""
+        rels_str += f"({start})-[:{rel_type}]->({end}){description}\n"
+
+    return nodes_str + "\n" + rels_str
+
+# 进行摘要并存入数据库
+def community_abstract(graph):
+    # 检索社区所包含的结点与边的信息
+    community_info = graph.query(
+        """
+        MATCH (c:`__Community__`)<-[:IN_COMMUNITY*]-(e:__Entity__)
+        WHERE c.level IN [0]
+        WITH c, collect(e ) AS nodes
+        WHERE size(nodes) > 3
+        CALL apoc.path.subgraphAll(nodes[0], {
+            whitelistNodes:nodes
+        })
+        YIELD relationships
+        RETURN c.id AS communityId,
+            [n in nodes | {id: n.id, description: n.description, type: [el in labels(n) WHERE el <> '__Entity__'][0]}] AS nodes,
+            [r in relationships | {start: startNode(r).id, type: type(r), end: endNode(r).id, description: r.description}] AS rels
+        """
+    )
+    
+    community_template = """
+    基于所提供的属于同一图社区的节点和关系， 
+    生成所提供图社区信息的自然语言摘要： 
+    {community_info} 
+    摘要：
+    """  
+    community_prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "给定一个输入三元组，生成信息摘要。没有序言。",
+            ),
+            ("human", community_template),
+        ]
+    )
+    
+    llm  = ChatDeepSeek(
+        model=INSTRUCT_MODEL,
+        temperature=1.0
+    )
+
+    community_chain = community_prompt | llm | StrOutputParser()
+    
+    t0 = time.time()
+    # 准备批量处理的输入
+    batch_inputs = []
+    community_id_map = {}  # 用于存储索引和对应的社区ID
+    for idx, info in enumerate(community_info):
+        stringify_info = prepare_string(info)
+        batch_inputs.append({'community_info': stringify_info})
+        community_id_map[idx] = info['communityId']  # 使用索引作为键
+
+    # 使用batch并行处理
+    summaries = community_chain.batch(batch_inputs, config=RunnableConfig(max_concurrency=12))
+
+    # 组合结果
+    results = []
+    for idx, summary in enumerate(summaries):
+        results.append({
+            "community": community_id_map[idx],
+            "summary": summary
+        })
+    t2 = time.time()
+    print("摘要耗时：",t2-t0,"秒")
+    print("\n")
+
+    # 存储社区摘要
+    graph.query("""
+    UNWIND $data AS row
+    MERGE (c:__Community__ {id:row.community})
+    SET c.summary = row.summary
+    """, params={"data": results})
