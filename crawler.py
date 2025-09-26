@@ -1,6 +1,7 @@
 import os
 import re
 from my_packages.StrokeScrape import stroke_scrape
+from my_packages.StrokeScrape import MAX_CRAWL_DEPTH
 
 # 指定数据保存路径
 DIRECTORY_PATH = './data'
@@ -13,6 +14,14 @@ def sanitize_filename(filename):
 if __name__ == "__main__":
     # 爬取页面
     results, report, logs = stroke_scrape()
+
+    # 动态创建深度文件夹 
+    depth_dirs = {} 
+    for depth in range(MAX_CRAWL_DEPTH + 1): # +1 因为深度从0开始 
+        folder_name = f"depth_{depth}" 
+        folder_path = os.path.join(DIRECTORY_PATH, folder_name) 
+        os.makedirs(folder_path, exist_ok=True) 
+        depth_dirs[depth] = folder_path
 
     # 保存每个页面到文件夹
     for page_name, (content, depth) in results.items():
