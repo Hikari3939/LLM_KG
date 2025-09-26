@@ -15,29 +15,27 @@ STOP_SECTIONS = ["参考文献", "延伸阅读", "参见", "外部链接"]
 
 def stroke_scrape():
 
-    actual_max_depth =  MAX_CRAWL_DEPTH
+    actual_max_depth = MAX_CRAWL_DEPTH
     
     logs = []
-    logs.append(f"开始爬取‘脑卒中’主页面（最大深度：{actual_max_depth}）…")
-    
+    logs.append(f"开始爬取：脑卒中（最大深度：{actual_max_depth}）")
+
+    # ====== 深度0：主页面 ======
     stroke_url = BASE_URL + "/wiki/脑卒中"
     stroke_data, stroke_links = get_page_text(stroke_url)
 
-    # 提取主页面内链
-    logs.append("提取主页面内链…")
+    results = {"脑卒中": (stroke_data, 0)}  
     related_pages = dict(stroke_links)
 
-    results = {"脑卒中": (stroke_data, 0)}  # 存储内容和深度
-    report = []
+    print(f"[深度0] 正在抓取：脑卒中")
+    print(f"抓取成功：正文段落 {len(stroke_data)} 条，新发现链接 {len(stroke_links)} 个\n")
+    logs.append(f"[深度0] 抓取成功：正文段落 {len(stroke_data)} 条，新发现链接 {len(stroke_links)} 个")
 
     # 队列存储待爬取页面：(title, url, depth)
-    queue = []
-    for title, url in related_pages.items():
-        queue.append((title, url, 1))
-    
-    visited = set(["脑卒中"]) # visited集合防止重复爬取页面
+    queue = [(title, url, 1) for title, url in related_pages.items()]
+    visited = set(["脑卒中"])
 
-    idx = 0
+    # ====== 其他页面 ======
     while queue:
         title, url, depth = queue.pop(0)
 
@@ -45,16 +43,13 @@ def stroke_scrape():
             continue
         visited.add(title)
 
-        # 检查深度限制
         if depth > actual_max_depth:
-            logs.append(f"跳过页面 {title}（深度{depth}超过限制{actual_max_depth}）")
+            skip_msg = f"跳过：{title}（深度 {depth} > 限制 {actual_max_depth}）"
+            logs.append(skip_msg)
             continue
 
-        idx += 1
-        total_discovered = len(related_pages)
-        remaining = len([p for p in related_pages.items() if p[0] not in visited])
-        log_entry = f"[{idx}/{remaining} of {total_discovered}] 深度{depth}：{title}"
-        print(log_entry)
+        print(f"[深度{depth}] 正在抓取：{title}")
+        logs.append(f"[深度{depth}] 正在抓取：{title}")
 
         try:
             page_data, page_links = get_page_text(url)
@@ -69,26 +64,27 @@ def stroke_scrape():
                     if t not in visited and depth + 1 <= actual_max_depth:
                         queue.append((t, u, depth + 1))
 
-            success_msg = f"  -> 完成：{len(page_data)}条，深度{depth}，发现{new_links_count}新链接\n"
+            success_msg = (
+                f"抓取成功：正文段落 {len(page_data)} 条，"
+                f"新发现链接 {new_links_count} 个\n"
+            )
             print(success_msg)
             logs.append(success_msg.strip())
-            report.append({
-                "title": title,
-                "items": len(page_data),
-                "depth": depth,
-                "status": "success",
-                "new_links": new_links_count
-            })
-            time.sleep(REQUEST_DELAY)
         except Exception as e:
-            error_msg = f"  -> 爬取失败（深度{depth}）: {e}\n"
+            error_msg = f"抓取失败（深度{depth}）：{e}\n"
             print(error_msg)
             logs.append(error_msg.strip())
-            report.append({
-                "title": title,
-                "depth": depth,
-                "status": "failed",
-                "error": str(e)
-            })
 
-    return results, report, logs, related_pages
+        time.sleep(REQUEST_DELAY)
+
+    # ====== 爬取结束统计 ======
+    final_summary = (
+        f"爬取结束！\n"
+        f"页面总数：{len(results)}\n"
+        f"正文条目：{sum(len(v[0]) for v in results.values())}\n"
+        f"内链总数：{len(related_pages)}"
+    )
+    print(final_summary)
+    logs.append(final_summary)
+
+    return results, logs, related_pages

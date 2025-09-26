@@ -23,6 +23,9 @@ def get_page_text(url):
     links = {}
 
     for elem in content_div.find_all(["p", "h2", "h3"]):
+        # 删除参考文献标注（<sup class="reference">）
+        for sup in elem.find_all("sup", {"class": "reference"}):
+            sup.decompose()
         text = zhconv.convert(elem.get_text(strip=True).replace("[编辑]", ""), "zh-cn")
         if not text:
             continue
