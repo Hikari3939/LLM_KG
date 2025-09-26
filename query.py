@@ -1,4 +1,4 @@
-from my_packages.QueryAbout import local_retriever, global_retriever, cypher_retriever
+from my_packages.QueryAbout import local_retriever, global_retriever
 
 if __name__ == "__main__":
     while True:
@@ -30,12 +30,3 @@ if __name__ == "__main__":
             print("回答:", global_response)
         except Exception as e:
             print(f"全局检索失败: {str(e)}")
-        
-        # Cypher查询
-        print("\nCypher查询结果:")
-        print("-" * 30)
-        try:
-            cypher_response = cypher_retriever(query)
-            print("回答:", cypher_response)
-        except Exception as e:
-            print(f"Cypher查询失败: {str(e)}")

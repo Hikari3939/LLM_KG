@@ -1,12 +1,12 @@
 import os
-from langchain_community.vectorstores import Neo4jVector
-from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 from tqdm import tqdm
-from langchain_deepseek import ChatDeepSeek
-from langchain_huggingface import HuggingFaceEmbeddings
 from dotenv import load_dotenv
+from langchain_deepseek import ChatDeepSeek
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Neo4jVector
+from langchain_core.output_parsers import StrOutputParser
+from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 加载环境变量
@@ -17,16 +17,19 @@ llm = ChatDeepSeek(
     model='deepseek-chat',
     temperature=0.7
 )
+
 # Cypher查询专用LLM
 cypher_llm = ChatDeepSeek(
     model='deepseek-chat',
     temperature=0
 )
-# 使用与建立知识图谱相同的Embedding模型
+
+# 加载Embedding模型
 embeddings = HuggingFaceEmbeddings(
     model_name="BAAI/bge-m3", 
     cache_folder="./model"
 )
+
 # LLM以多段的形式回答问题。
 response_type: str = "多个段落"
 
@@ -195,114 +198,113 @@ def local_retriever(query: str, response_type: str = response_type) -> str:
     # 返回LLM的答复
     return lc_response
 
-
-
-MAP_SYSTEM_PROMPT = """
----角色--- 
-你是一位有用的助手，可以回答有关所提供表格中数据的问题。 
-
----任务描述--- 
-- 生成一个回答用户问题所需的要点列表，总结输入数据表格中的所有相关信息。 
-- 你应该使用下面数据表格中提供的数据作为生成回复的主要上下文。
-- 仔细分析数据表格，寻找与用户问题相关的任何信息，包括同义词和相关概念。
-- 如果数据表格中包含相关信息（即使是间接相关的），请提取并总结这些信息。
-- 只有在数据表格完全没有任何相关信息时才回答"不知道"。
-- 数据支持的要点应列出相关的数据引用作为参考。
-- **不要在一个引用中列出超过5个引用记录的ID**。相反，列出前5个最相关引用记录的顺序号作为ID。
-
----回答要求---
-回复中的每个要点都应包含以下元素： 
-- 描述：对该要点的综合描述。 
-- 重要性评分：0-100之间的整数分数，表示该要点在回答用户问题时的重要性。"不知道"类型的回答应该得0分。 
-
----回复的格式--- 
-回复应采用JSON格式，如下所示： 
-{{ 
-"points": [ 
-{{"description": "Description of point 1 {{'nodes': [nodes list seperated by comma], 'relationships':[relationships list seperated by comma]}}", "score": score_value}}, 
-{{"description": "Description of point 2 {{'nodes': [nodes list seperated by comma], 'relationships':[relationships list seperated by comma]}}", "score": score_value}}, 
-] 
-}}
-例如： 
-####################
-{{"points": [
-{{"description": "X是Y公司的所有者，他也是X公司的首席执行官。 {{'nodes': [1,3], 'relationships':[2,4,6,8,9]}}", "score": 80}}, 
-{{"description": "X受到许多不法行为指控。 {{'nodes': [1,3], 'relationships':[12,14,16,18,19]}}", "score": 90}}
-] 
-}}
-####################
-
-"""
-
-REDUCE_SYSTEM_PROMPT = """
----角色--- 
-你是一个有用的助手，请根据用户输入的上下文，综合上下文中多个要点列表的数据，来回答问题，并遵守回答要求。
-
----任务描述--- 
-总结来自多个不同要点列表的数据，生成要求长度和格式的回复，以回答用户的问题。 
-
----回答要求---
-- 你要严格根据要点列表的内容回答，禁止根据常识和已知信息回答问题。
-- 对于不知道的信息，直接回答"不知道"，不要添加任何引用标记。
-- 只有在找到相关信息时才添加引用标记。
-- 最终的回复应删除要点列表中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有选用的要点及其含义，并符合要求的长度和格式。 
-- 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
-- 回复应保留之前包含在要点列表中的要点引用，但不要包含原始的数据引用，也不要提及各个要点在分析过程中的作用。 
-- **不要在一个引用中列出超过5个要点引用的ID**，相反，列出前5个最相关要点引用的顺序号作为ID。 
-- 不要包括没有提供支持证据的信息。
-例如： 
-#############################
-"X是Y公司的所有者，他也是X公司的首席执行官{{'points':[1,3]}}，受到许多不法行为指控{{'points':[2, 3, 6, 9, 10]}}。" 
-其中1、2、3、6、9、10表示相关要点引用的顺序号。 
-#############################
-
----回复的长度和格式--- 
-- {response_type}
-- 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
-- 输出要点引用的格式：
-{{'points': [逗号分隔的要点顺序号列表]}}
-例如：
-{{'points':[1,3]}}
-- 要点引用的说明放在引用之后，不要单独作为一段。
-例如： 
-#############################
-"X是Y公司的所有者，他也是X公司的首席执行官{{'points':[1,3]}}，受到许多不法行为指控{{'points':[2, 3, 6, 9, 10]}}。" 
-其中1、2、3、6、9、10表示相关要点引用的顺序号。 
-#############################
-"""
-
 # 全局检索器
 def global_retriever(query: str, level: int, response_type: str = response_type) -> str:
+
     # MAP阶段生成中间结果的prompt与chain
+    map_system_prompt = """
+    ---角色--- 
+    你是一位有用的助手，可以回答有关所提供社区摘要的问题。 
+
+    ---任务描述--- 
+    - 生成一个回答用户问题所需的要点列表，总结输入的社区摘要中的所有相关信息。
+    - 你应该使用下面提供的社区摘要作为生成回复的主要上下文。
+    - 仔细分析社区摘要，寻找与用户问题相关的任何信息，包括同义词和相关概念。
+    - 如果社区摘要中包含相关信息（即使是间接相关的），请提取并总结这些信息。
+    - 只有在社区摘要完全没有任何相关信息时才回答"不知道"。
+    - 数据支持的要点应列出相关的社区引用作为参考。
+    - **不要在一个引用中列出超过5个引用记录的ID**。相反，列出前5个最相关引用记录的顺序号作为ID。
+
+    ---回答要求---
+    回复中的每个要点都应包含以下元素： 
+    - 描述：对该要点的综合描述。 
+    - 重要性评分：0-100之间的整数分数，表示该要点在回答用户问题时的重要性。"不知道"类型的回答应该得0分。 
+
+    ---回复的格式--- 
+    回复应采用JSON格式，如下所示： 
+    {{ 
+    "points": [ 
+    {{"description": "Description of point 1 {{'communities': [community_ids list seperated by comma]}}", "score": score_value}}, 
+    {{"description": "Description of point 2 {{'communities': [community_ids list seperated by comma]}}", "score": score_value}}, 
+    ] 
+    }}
+    例如： 
+    ####################
+    {{"points": [
+    {{"description": "X是Y公司的所有者，他也是X公司的首席执行官。 {{'communities': [1,3]}}", "score": 80}}, 
+    {{"description": "X受到许多不法行为指控。 {{'communities': [1,3]}}", "score": 90}}
+    ] 
+    }}
+    ####################
+    """
+
     map_prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                MAP_SYSTEM_PROMPT,
+                map_system_prompt,
             ),
             (
                 "human",
                 """
-                ---数据表格--- 
+                ---社区摘要--- 
                 {context_data}
                 
                 
                 用户的问题是：
                 {question}
                 
-                注意：请仔细分析数据表格，寻找与问题相关的任何信息，包括同义词和相关概念。
-                如果数据中包含相关信息（即使是间接相关的），请提取并总结这些信息。
+                注意：请仔细分析社区摘要，寻找与问题相关的任何信息，包括同义词和相关概念。
+                如果社区摘要中包含相关信息（即使是间接相关的），请提取并总结这些信息。
                 """,
             ),
         ]
     )
     map_chain = map_prompt | llm | StrOutputParser()
+    
     # Reduce阶段生成最终结果的prompt与chain
+    reduce_system_prompt = """
+    ---角色--- 
+    你是一个有用的助手，请根据用户输入的上下文，综合上下文中多个要点列表的数据，来回答问题，并遵守回答要求。
+
+    ---任务描述--- 
+    总结来自多个不同要点列表的数据，生成要求长度和格式的回复，以回答用户的问题。 
+
+    ---回答要求---
+    - 你要严格根据要点列表的内容回答，禁止根据常识和已知信息回答问题。
+    - 对于不知道的信息，直接回答"不知道"，不要添加任何引用标记。
+    - 只有在找到相关信息时才添加引用标记。
+    - 最终的回复应删除要点列表中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有选用的要点及其含义，并符合要求的长度和格式。 
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
+    - 回复应保留之前包含在要点列表中的要点引用，但不要包含原始的数据引用，也不要提及各个要点在分析过程中的作用。 
+    - **不要在一个引用中列出超过5个要点引用的ID**，相反，列出前5个最相关要点引用的顺序号作为ID。 
+    - 不要包括没有提供支持证据的信息。
+    例如： 
+    #############################
+    "X是Y公司的所有者，他也是X公司的首席执行官{{'points':[1,3]}}，受到许多不法行为指控{{'points':[2, 3, 6, 9, 10]}}。" 
+    其中1、2、3、6、9、10表示相关要点引用的顺序号。 
+    #############################
+
+    ---回复的长度和格式--- 
+    - {response_type}
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
+    - 输出要点引用的格式：
+    {{'points': [逗号分隔的要点顺序号列表]}}
+    例如：
+    {{'points':[1,3]}}
+    - 要点引用的说明放在引用之后，不要单独作为一段。
+    例如： 
+    #############################
+    "X是Y公司的所有者，他也是X公司的首席执行官{{'points':[1,3]}}，受到许多不法行为指控{{'points':[2, 3, 6, 9, 10]}}。" 
+    其中1、2、3、6、9、10表示相关要点引用的顺序号。 
+    #############################
+    """
+
     reduce_prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                REDUCE_SYSTEM_PROMPT,
+                reduce_system_prompt,
             ),
             (
                 "human",
@@ -332,7 +334,8 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
         """
         MATCH (c:__Community__)
         WHERE c.level = $level
-        RETURN c.summary AS output
+        RETURN c.id AS community_id, c.summary AS output
+        ORDER BY c.id
         """,
         params={"level": level},
     )
@@ -347,9 +350,11 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
     def process_community(community_info):
         """处理单个社区的函数"""
         i, community = community_info
+        context_data = f"社区编号: {community['community_id']}\n社区摘要: {community['output']}"
+        
         try:
             intermediate_response = map_chain.invoke(
-                {"question": query, "context_data": community["output"]}
+                {"question": query, "context_data": context_data}
             )
             return i, intermediate_response, None
         except Exception as e:
@@ -388,31 +393,3 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
     )
     # 返回LLM最终的答复
     return final_response
-
-# Cypher查询器
-def cypher_retriever(query: str) -> str:
-    """使用Cypher查询进行检索"""
-    try:
-        # 连接neo4j数据库
-        graph = Neo4jGraph(
-            url=NEO4J_URI, 
-            username=NEO4J_USERNAME, 
-            password=NEO4J_PASSWORD,
-            enhanced_schema=True
-        )
-        
-        # 构建查询工具链
-        cypher_chain = GraphCypherQAChain.from_llm(
-            graph=graph, llm=cypher_llm, verbose=False, allow_dangerous_requests=True
-        )
-        
-        # 执行查询
-        response = cypher_chain.invoke({"query": query})
-        
-        # 关闭连接
-        graph.close()
-        
-        return response['result']
-        
-    except Exception as e:
-        return f"Cypher查询失败: {str(e)}"
