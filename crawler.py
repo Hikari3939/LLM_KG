@@ -34,4 +34,4 @@ for page_name, (content, depth) in results.items():
         with open(file_path, "w", encoding="utf-8") as f:
             f.write("\n".join(content))
 
-    print(f"\n爬取完成！")
+print(f"\n爬取完成！")
