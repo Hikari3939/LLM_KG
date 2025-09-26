@@ -1,8 +1,7 @@
 # 用于爬取单个 Wikipedia 页面（正文文本 + 正文内链）
 import requests
 from bs4 import BeautifulSoup
-from opencc import OpenCC
-cc = OpenCC('t2s')  # 繁体转简体
+import zhconv
 
 BASE_URL = "https://zh.wikipedia.org"
 HEADERS = {
@@ -24,7 +23,7 @@ def get_page_text(url):
     links = {}
 
     for elem in content_div.find_all(["p", "h2", "h3"]):
-        text = cc.convert(elem.get_text(strip=True).replace("[编辑]", ""))
+        text = zhconv.convert(elem.get_text(strip=True).replace("[编辑]", ""), "zh-cn")
         if not text:
             continue
         if any(stop in text for stop in STOP_SECTIONS):
@@ -36,7 +35,7 @@ def get_page_text(url):
             if href and href.startswith("/wiki/") and ":" not in href:
                 title = a.get("title") or a.get_text(strip=True)
                 if title:
-                    title = cc.convert(title)
+                    title = zhconv.convert(title, "zh-cn")
                     links[title] = BASE_URL + href.split("#")[0]
 
     return data, links

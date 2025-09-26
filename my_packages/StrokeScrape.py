@@ -1,6 +1,4 @@
 import time
-import requests
-from bs4 import BeautifulSoup
 from my_packages.GetPageText import get_page_text
 
 BASE_URL = "https://zh.wikipedia.org"
@@ -15,7 +13,7 @@ MAX_CRAWL_DEPTH = 1  # 默认爬取深度（0=主页面，1=第一层，2=第二
 REQUEST_DELAY = 1    # 请求延迟（秒）
 STOP_SECTIONS = ["参考文献", "延伸阅读", "参见", "外部链接"]
 
-def stroke_scrape(max_depth=None):
+def stroke_scrape():
 
     actual_max_depth =  MAX_CRAWL_DEPTH
     

@@ -1,5 +1,4 @@
 import os
-from neo4j import GraphDatabase
 from langchain_community.vectorstores import Neo4jVector
 from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
 from langchain_core.prompts import ChatPromptTemplate
@@ -32,116 +31,114 @@ embeddings = HuggingFaceEmbeddings(
 response_type: str = "多个段落"
 
 # 设置Neo4j的运行参数
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME", "neo4j")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "password")
-# Neo4j向量索引的名字
-index_name = "vector"
-
-
-topChunks = 3
-topCommunities = 3
-topOutsideRels = 10
-topInsideRels = 10
-topEntities = 10
-
-lc_retrieval_query = """
-WITH collect(node) as nodes
-// Entity - Text Unit Mapping
-WITH
-collect {
-    UNWIND nodes as n
-    MATCH (n)<-[:MENTIONS]-(c:__Chunk__)
-    WITH distinct c, count(distinct n) as freq
-    RETURN {id:c.id, text: c.text} AS chunkText
-    ORDER BY freq DESC
-    LIMIT $topChunks
-} AS text_mapping,
-// Entity - Report Mapping (可选，如果社区数据不存在则返回空)
-collect {
-    UNWIND nodes as n
-    OPTIONAL MATCH (n)-[:IN_COMMUNITY]->(c:__Community__)
-    WITH distinct c, c.community_rank as rank, c.weight AS weight
-    WHERE c IS NOT NULL
-    RETURN c.summary 
-    ORDER BY rank, weight DESC
-    LIMIT $topCommunities
-} AS report_mapping,
-// Outside Relationships 
-collect {
-    UNWIND nodes as n
-    MATCH (n)-[r]-(m:__Entity__) 
-    WHERE NOT m IN nodes
-    RETURN r.description AS descriptionText
-    ORDER BY r.weight DESC 
-    LIMIT $topOutsideRels
-} as outsideRels,
-// Inside Relationships 
-collect {
-    UNWIND nodes as n
-    MATCH (n)-[r]-(m:__Entity__) 
-    WHERE m IN nodes
-    RETURN r.description AS descriptionText
-    ORDER BY r.weight DESC 
-    LIMIT $topInsideRels
-} as insideRels,
-// Entities description
-collect {
-    UNWIND nodes as n
-    RETURN n.description AS descriptionText
-} as entities
-// We don't have covariates or claims here
-RETURN {Chunks: text_mapping, Reports: report_mapping, 
-       Relationships: outsideRels + insideRels, 
-       Entities: entities} AS text, 1.0 AS score, {} AS metadata
-"""
-
-LC_SYSTEM_PROMPT="""
----角色--- 
-您是一个有用的助手，请根据用户输入的上下文，综合上下文中多个分析报告的数据，来回答问题，并遵守回答要求。
-
----任务描述--- 
-总结来自多个不同分析报告的数据，生成要求长度和格式的回复，以回答用户的问题。 
-
----回答要求---
-- 你要严格根据分析报告的内容回答，禁止根据常识和已知信息回答问题。
-- 对于不知道的问题，直接回答"不知道"，不要添加任何引用标记。
-- 只有在找到相关信息时才添加引用标记。
-- 最终的回复应删除分析报告中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有的要点及其含义，并符合要求的长度和格式。 
-- 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
-- 回复应保留之前包含在分析报告中的所有数据引用，但不要提及各个分析报告在分析过程中的作用。 
-- 如果回复引用了Entities、Reports及Relationships类型分析报告中的数据，则用它们的顺序号作为ID。
-- 如果回复引用了Chunks类型分析报告中的数据，则用原始数据的id作为ID。 
-- **不要在一个引用中列出超过5个引用记录的ID**，相反，列出前5个最相关的引用记录ID。 
-- 不要包括没有提供支持证据的信息。
-例如： 
-#############################
-"X是Y公司的所有者，他也是X公司的首席执行官，他受到许多违规行为指控，其中的一些已经涉嫌违法。" 
-
-{{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
-#############################
----回复的长度和格式--- 
-- {response_type}
-- 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
-- 在回复的最后才输出数据引用的情况，单独作为一段。
-输出引用数据的格式：
-{{'data': {{'Entities':[逗号分隔的顺序号列表], 'Reports':[逗号分隔的顺序号列表], 'Relationships':[逗号分隔的顺序号列表], 'Chunks':[逗号分隔的id列表] }} }}
-例如：
-{{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
-
-"""
+NEO4J_URI = os.environ.get("NEO4J_URI")
+NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 
 # 局部检索器
 def local_retriever(query: str, response_type: str = response_type) -> str:
-    # 扩展查询词
-    expanded_query = expand_query(query)
-    print(f"开始局部检索，查询: '{query}' (扩展: '{expanded_query}')")
-    # 局部检索的提示词
+    # 检索语料数量限制
+    topChunks = 3
+    topCommunities = 3
+    topOutsideRels = 10
+    topInsideRels = 10
+    topEntities = 10
+
+    # Cypher查询语句
+    lc_retrieval_query = """
+    WITH collect(node) as nodes
+    // Entity - Text Unit Mapping
+    WITH
+    collect {
+        UNWIND nodes as n
+        MATCH (n)<-[:MENTIONS]-(c:__Chunk__)
+        WITH distinct c, count(distinct n) as freq
+        RETURN {id:c.id, text: c.text} AS chunkText
+        ORDER BY freq DESC
+        LIMIT $topChunks
+    } AS text_mapping,
+    // Entity - Report Mapping
+    collect {
+        UNWIND nodes as n
+        MATCH (n)-[:IN_COMMUNITY]->(c:__Community__)
+        WITH distinct c, c.community_rank as rank, c.weight AS weight
+        RETURN c.summary 
+        ORDER BY rank, weight DESC
+        LIMIT $topCommunities
+    } AS report_mapping,
+    // Outside Relationships 
+    collect {
+        UNWIND nodes as n
+        MATCH (n)-[r]-(m:__Entity__) 
+        WHERE NOT m IN nodes
+        RETURN r.description AS descriptionText
+        ORDER BY r.weight DESC 
+        LIMIT $topOutsideRels
+    } as outsideRels,
+    // Inside Relationships 
+    collect {
+        UNWIND nodes as n
+        MATCH (n)-[r]-(m:__Entity__) 
+        WHERE m IN nodes
+        RETURN r.description AS descriptionText
+        ORDER BY r.weight DESC 
+        LIMIT $topInsideRels
+    } as insideRels,
+    // Entities description
+    collect {
+        UNWIND nodes as n
+        RETURN n.description AS descriptionText
+    } as entities
+    // We don't have covariates or claims here
+    RETURN {Chunks: text_mapping, Reports: report_mapping, 
+        Relationships: outsideRels + insideRels, 
+        Entities: entities} AS text, 1.0 AS score, {} AS metadata
+    """
+
+    # 系统提示词
+    lc_system_prompt="""
+    ---角色--- 
+    您是一个有用的助手，请根据用户输入的上下文，综合上下文中多个分析报告的数据，来回答问题，并遵守回答要求。
+
+    ---任务描述--- 
+    总结来自多个不同分析报告的数据，生成要求长度和格式的回复，以回答用户的问题。 
+
+    ---回答要求---
+    - 你要严格根据分析报告的内容回答，禁止根据常识和已知信息回答问题。
+    - 对于不知道的问题，直接回答“不知道”。
+    - 最终的回复应删除分析报告中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有的要点及其含义，并符合要求的长度和格式。 
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
+    - 回复应保留之前包含在分析报告中的所有数据引用，但不要提及各个分析报告在分析过程中的作用。 
+    - 如果回复引用了Entities、Reports及Relationships类型分析报告中的数据，则用它们的顺序号作为ID。
+    - 如果回复引用了Chunks类型分析报告中的数据，则用原始数据的id作为ID。 
+    - **不要在一个引用中列出超过5个引用记录的ID**，相反，列出前5个最相关的引用记录ID。 
+    - 不要包括没有提供支持证据的信息。
+    例如： 
+    #############################
+    “X是Y公司的所有者，他也是X公司的首席执行官，他受到许多违规行为指控，其中的一些已经涉嫌违法。” 
+
+    {{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
+    #############################
+    ---回复的长度和格式--- 
+    - {response_type}
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
+    - 在回复的最后才输出数据引用的情况，单独作为一段。
+    输出引用数据的格式：
+    {{'data': {{'Entities':[逗号分隔的顺序号列表], 'Reports':[逗号分隔的顺序号列表], 'Relationships':[逗号分隔的顺序号列表], 'Chunks':[逗号分隔的id列表] }} }}
+    例如：
+    {{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
+
+    """
+
+
+        # 局部检索的提示词
+    
+    # 构建提示词
     lc_prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                LC_SYSTEM_PROMPT,
+                lc_system_prompt,
             ),
             (
                 "human",
@@ -158,74 +155,31 @@ def local_retriever(query: str, response_type: str = response_type) -> str:
             ),
         ]
     )
+    
     # 局部检索的chain
     lc_chain = lc_prompt | llm | StrOutputParser()
+    
     # 局部检索的Neo4j向量存储与索引
-    try:
-        lc_vector = Neo4jVector.from_existing_index(
-            embeddings,
-            url=NEO4J_URI,
-            username=NEO4J_USERNAME,
-            password=NEO4J_PASSWORD,
-            index_name=index_name,
-            retrieval_query=lc_retrieval_query,
-        )
-        # 先进行向量相似性搜索
-        docs = lc_vector.similarity_search(
-            query,
-            k=topEntities,
-            params={
-                "topChunks": topChunks,
-                "topCommunities": topCommunities,
-                "topOutsideRels": topOutsideRels,
-                "topInsideRels": topInsideRels,
-            },
-        )
-    except Exception as e:
-        print(f"局部检索向量搜索失败: {str(e)}")
-        print("将使用直接Cypher查询作为备选方案...")
-        # 备选方案：直接使用Cypher查询
-        try:
-            # 创建Neo4j连接
-            driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
-            
-            with driver.session() as session:
-                # 直接查询相关实体和关系
-                cypher_result = session.run(
-                    """
-                    MATCH (e:__Entity__)
-                    WHERE e.text IS NOT NULL AND e.text <> '' AND 
-                          (e.text CONTAINS $query OR e.name CONTAINS $query)
-                    WITH e
-                    OPTIONAL MATCH (e)-[r]-(related)
-                    RETURN e, collect(r) as relationships, collect(related) as related_nodes
-                    LIMIT $topEntities
-                    """,
-                    query=query, topEntities=topEntities
-                )
-                cypher_result = list(cypher_result)
-            
-            # 构造类似向量搜索结果的文档
-            if cypher_result:
-                content = "实体信息:\n"
-                for row in cypher_result:
-                    entity = row["e"]
-                    content += f"- {entity.get('name', 'Unknown')}: {entity.get('text', 'No description')}\n"
-                
-                # 创建模拟的文档对象
-                class MockDoc:
-                    def __init__(self, content):
-                        self.page_content = content
-                
-                docs = [MockDoc(content)]
-            else:
-                docs = [MockDoc("未找到相关信息")]
-            
-            driver.close()
-                
-        except Exception as cypher_e:
-            print(f"Cypher查询也失败: {str(cypher_e)}")
-            docs = [MockDoc("查询失败，请检查数据库连接和数据完整性")]
+    lc_vector = Neo4jVector.from_existing_index(
+        embeddings,
+        url=NEO4J_URI,
+        username=NEO4J_USERNAME,
+        password=NEO4J_PASSWORD,
+        index_name="vector",
+        retrieval_query=lc_retrieval_query,
+    )
+    
+    # 先进行向量相似性搜索
+    docs = lc_vector.similarity_search(
+        query,
+        k=topEntities,
+        params={
+            "topChunks": topChunks,
+            "topCommunities": topCommunities,
+            "topOutsideRels": topOutsideRels,
+            "topInsideRels": topInsideRels,
+        },
+    )
     
     print(docs[0].page_content)
     
@@ -237,6 +191,7 @@ def local_retriever(query: str, response_type: str = response_type) -> str:
             "response_type": response_type,
         }
     )
+    
     # 返回LLM的答复
     return lc_response
 

@@ -6,6 +6,8 @@ import zhconv
 import neo4j
 import time
 
+REQUEST_DELAY = 1    # 请求延迟（秒）
+
 # 设置日志记录
 logging.basicConfig(
     level=logging.INFO,
@@ -16,13 +18,12 @@ logger = logging.getLogger()
 class Neo4jImageUpdater:
     def __init__(self, uri: str, user: str, password: str):
         """
-        初始化Neo4j连接和线程池
+        初始化Neo4j连接
 
         Args:
             uri: Neo4j数据库URI
             user: 用户名
             password: 密码
-            max_workers: 最大线程数
         """
         self.driver = neo4j.GraphDatabase.driver(uri, auth=(user, password))
         self.session = self.driver.session()
@@ -86,7 +87,11 @@ class Neo4jImageUpdater:
             图片URL或None
         """
         url = f"https://zh.wikipedia.org/api/rest_v1/page/summary/{quote(term)}"
-        headers = {'User-Agent': 'Neo4jImageUpdater/1.0'}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/117.0.0.0 Safari/537.36"
+        }
         
         for attempt in range(max_retries):
             try:
@@ -187,6 +192,8 @@ class Neo4jImageUpdater:
             else:
                 results['failed'] += 1
                 logger.warning(f"处理节点失败 {i}/{len(node_ids)}: {node_id} - {message}")
+                
+            time.sleep(REQUEST_DELAY)
         
         logger.info(f"处理完成: 总共 {results['total']} 个节点, 成功 {results['success']}, 失败 {results['failed']}")
         return results

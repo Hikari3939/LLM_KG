@@ -10,7 +10,7 @@ def sanitize_filename(filename):
 
 if __name__ == "__main__":
     # 设置爬取深度
-    results, report, logs, related_pages = stroke_scrape(max_depth=MAX_CRAWL_DEPTH)
+    results, report, logs, related_pages = stroke_scrape()
 
     output_dir = os.path.join(os.path.dirname(__file__), "data")
 
