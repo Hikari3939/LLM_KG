@@ -1,4 +1,3 @@
-# 导入检索器
 from my_packages.QueryAbout import local_retriever, global_retriever, cypher_retriever
 
 if __name__ == "__main__":
