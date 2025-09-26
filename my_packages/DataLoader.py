@@ -6,7 +6,7 @@ import codecs
 def read_txt_files(directory):
     # 存放结果的列表
     results = []
-    # 使用 os.walk 递归遍历目录
+    # 递归遍历目录
     for root, _, files in os.walk(directory):
         for filename in files:
             # 检查文件扩展名是否为.txt
