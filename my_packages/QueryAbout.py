@@ -195,6 +195,8 @@ def local_retriever(query: str, response_type: str = response_type) -> str:
     # 返回LLM的答复
     return lc_response
 
+
+
 MAP_SYSTEM_PROMPT = """
 ---角色--- 
 你是一位有用的助手，可以回答有关所提供表格中数据的问题。 
@@ -269,45 +271,8 @@ REDUCE_SYSTEM_PROMPT = """
 #############################
 """
 
-# 查询扩展函数
-def expand_query(query: str) -> str:
-    """扩展查询词，添加同义词和相关概念"""
-    # 医疗术语同义词映射
-    synonyms = {
-        "脑卒中": ["中风", "脑血管意外", "脑血管事件", "脑血管事故", "脑病发作", "卒中"],
-        "中风": ["脑卒中", "脑血管意外", "脑血管事件", "脑血管事故", "脑病发作", "卒中"],
-        "高血压": ["血压高", "高血压病", "动脉高血压"],
-        "治疗": ["疗法", "医治", "诊疗", "救治", "康复"],
-        "症状": ["征象", "临床表现", "病征"],
-        "预防": ["防范", "预防措施", "预防性"],
-        "药物": ["药品", "药物", "药剂", "用药"],
-        "手术": ["外科手术", "手术治疗", "开刀"],
-        "康复": ["恢复", "复健", "康复训练"]
-    }
-    
-    expanded_terms = [query]
-    for term, syns in synonyms.items():
-        if term in query:
-            expanded_terms.extend(syns)
-        for syn in syns:
-            if syn in query:
-                expanded_terms.extend([term] + [s for s in syns if s != syn])
-    
-    # 去重并保持原始查询在前
-    unique_terms = []
-    seen = set()
-    for term in expanded_terms:
-        if term not in seen:
-            unique_terms.append(term)
-            seen.add(term)
-    
-    return " ".join(unique_terms)
-
 # 全局检索器
 def global_retriever(query: str, level: int, response_type: str = response_type) -> str:
-    # 扩展查询词
-    expanded_query = expand_query(query)
-    print(f"开始全局检索，查询: '{query}' (扩展: '{expanded_query}')")
     # MAP阶段生成中间结果的prompt与chain
     map_prompt = ChatPromptTemplate.from_messages(
         [
