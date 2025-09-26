@@ -236,7 +236,7 @@ if __name__ == '__main__':
             
         t2 = time.time()
         print("文件耗时：",t2-t0,"秒")
-        print("\n")
+        print("")
         file_content.append(results) # [4]:实体列表和关系列表(list)
 
     # 构造所有文档所有Chunk的GraphDocument对象
