@@ -24,7 +24,6 @@ INSTRUCT_MODEL = 'deepseek-chat'
 # 指定测试数据的目录路径
 DIRECTORY_PATH = './data'
 
-
 if __name__ == '__main__':
     # 读入测试数据
     file_contents = DataLoader.read_txt_files(DIRECTORY_PATH)
@@ -220,7 +219,6 @@ if __name__ == '__main__':
         "调节", "易感性", "保护", "验证", "引用"
     ]
     
-
     for file_content in file_contents:
         t0 = time.time()
         # 并行处理提高效率
@@ -236,8 +234,9 @@ if __name__ == '__main__':
             
         t2 = time.time()
         print("文件耗时：",t2-t0,"秒")
-        print("")
         file_content.append(results) # [4]:实体列表和关系列表(list)
+    print("LLM处理完成")
+    print("")
 
     # 构造所有文档所有Chunk的GraphDocument对象
     for file_content in file_contents:
