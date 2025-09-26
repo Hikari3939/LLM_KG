@@ -221,8 +221,8 @@ if __name__ == '__main__':
     ]
     
 
-    t0 = time.time()
     for file_content in file_contents:
+        t0 = time.time()
         # 并行处理提高效率
         inputs = [{
             "entity_types": entity_types,
