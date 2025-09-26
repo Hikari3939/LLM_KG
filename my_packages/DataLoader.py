@@ -6,18 +6,21 @@ import codecs
 def read_txt_files(directory):
     # 存放结果的列表
     results = []
-    # 遍历指定目录下的所有文件
-    for filename in os.listdir(directory):
-        # 检查文件扩展名是否为.txt
-        if filename.endswith(".txt"):
-            # 构建完整的文件路径
-            file_path = os.path.join(directory, filename)
-            # 打开并读取文件内容
-            with codecs.open(file_path, 'r', encoding='utf-8') as file:
-                content = file.read()
-            
-            # 将文件名和内容以列表形式添加到结果列表
-            results.append([filename, content])
+    # 使用 os.walk 递归遍历目录
+    for root, _, files in os.walk(directory):
+        for filename in files:
+            # 检查文件扩展名是否为.txt
+            if filename.endswith(".txt"):
+                # 构建完整的文件路径
+                file_path = os.path.join(root, filename)
+                try:
+                    # 打开并读取文件内容
+                    with codecs.open(file_path, 'r', encoding='utf-8') as file:
+                        content = file.read()
+                    # 将文件名和内容以列表形式添加到结果列表
+                        results.append([filename, content])
+                except Exception as e:
+                    print(f"读取文件 {file_path} 时出错: {e}")
     
     return results
 
