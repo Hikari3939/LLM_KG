@@ -6,7 +6,7 @@ import codecs
 def read_txt_files(directory):
     # 存放结果的列表
     results = []
-    # 遍历指定目录下的所有文件和文件夹
+    # 遍历指定目录下的所有文件
     for filename in os.listdir(directory):
         # 检查文件扩展名是否为.txt
         if filename.endswith(".txt"):
