@@ -33,9 +33,6 @@ if __name__ == "__main__":
         file_path = os.path.join(depth_dirs[depth], safe_filename)
 
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(f"页面标题: {page_name}\n")
-            f.write(f"深度: {depth}\n")
-            f.write("=" * 50 + "\n\n")
             f.write("\n".join(content))
 
     print(f"\n爬取完成！")
