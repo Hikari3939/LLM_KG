@@ -107,28 +107,51 @@ def decide_entity_merge(candidates):
     return merged_entities
 
 # 使用LLM进行社区摘要
-# 转换社区信息为字符串
-def prepare_string(data):
-    nodes_str = "Nodes are:\n"
-    for node in data['nodes']:
-        node_id = node['id']
-        node_type = node['type']
-        if 'description' in node and node['description']:
-            node_description = f", description: {node['description']}"
+# 按优先级准备社区信息，确保不超过token限制
+def prepare_prioritized_string(info, max_tokens=120000):
+    nodes = info['nodes']
+    rels = info['rels']
+    max_length = max_tokens / 0.8  # 1 个中文字符 ≈ 0.6 个 token
+    
+    # 构建节点ID到描述的映射
+    node_desc_map = {node['id']: f"id: {node['id']}, type: {node['type']}, description: {node['description']}" 
+                    for node in nodes}
+    
+    # 按优先级处理关系
+    prioritized_nodes = []
+    prioritized_rels = []
+    current_length = 0
+    
+    for rel in rels:
+        # 添加源节点描述（如果尚未添加）
+        if rel['start'] in node_desc_map:
+            node_desc = node_desc_map[rel['start']]
+            if current_length + len(node_desc) < max_length:
+                prioritized_nodes.append(node_desc)
+                current_length += len(node_desc)
+                del node_desc_map[rel['start']]  # 避免重复添加
+        
+        # 添加目标节点描述（如果尚未添加）
+        if rel['end'] in node_desc_map:
+            node_desc = node_desc_map[rel['end']]
+            if current_length + len(node_desc) < max_length:
+                prioritized_nodes.append(node_desc)
+                current_length += len(node_desc)
+                del node_desc_map[rel['end']]  # 避免重复添加
+        
+        # 添加关系描述
+        rel_desc = f"{rel['start']} --[{rel['type']}]--> {rel['end']}: {rel['description']}"
+        if current_length + len(rel_desc) < max_length:
+            prioritized_rels.append(rel_desc)
+            current_length += len(rel_desc)
         else:
-            node_description = ""
-        nodes_str += f"id: {node_id}, type: {node_type}{node_description}\n"
+            break  # 达到token限制，停止添加
+
+    nodes_str = "Nodes are:\n"
+    nodes_str += "\n".join(prioritized_nodes)
 
     rels_str = "Relationships are:\n"
-    for rel in data['rels']:
-        start = rel['start']
-        end = rel['end']
-        rel_type = rel['type']
-        if 'description' in rel and rel['description']:
-            description = f", description: {rel['description']}"
-        else:
-            description = ""
-        rels_str += f"({start})-[:{rel_type}]->({end}){description}\n"
+    rels_str += "\n".join(prioritized_rels)
 
     return nodes_str + "\n" + rels_str
 
@@ -139,15 +162,41 @@ def community_abstract(graph):
         """
         MATCH (c:`__Community__`)<-[:IN_COMMUNITY*]-(e:__Entity__)
         WHERE c.level IN [0]
-        WITH c, collect(e ) AS nodes
+        WITH c, collect(e) AS nodes
         WHERE size(nodes) > 3
         CALL apoc.path.subgraphAll(nodes[0], {
-            whitelistNodes:nodes
+            whitelistNodes: nodes
         })
-        YIELD relationships
+        YIELD nodes as subgraph_nodes, relationships as subgraph_rels
+        // 计算节点度中心性（显著度）
+        WITH c, subgraph_nodes, subgraph_rels,
+             [n IN subgraph_nodes | {
+                 id: n.id, 
+                 description: n.description, 
+                 type: [el in labels(n) WHERE el <> '__Entity__'],
+                 degree: size([(n)--() | 1])  // 计算节点的度
+             }] AS nodes_with_degree
+        // 计算关系的优先级（源节点度 + 目标节点度）
+        WITH c, nodes_with_degree, subgraph_rels,
+             [r IN subgraph_rels | {
+                 start: startNode(r).id, 
+                 end: endNode(r).id,
+                 type: type(r), 
+                 description: r.description,
+                 priority: (
+                     [n IN nodes_with_degree WHERE n.id = startNode(r).id | n.degree][0] +
+                     [n IN nodes_with_degree WHERE n.id = endNode(r).id | n.degree][0]
+                 )
+             }] AS rels_with_priority
+        // 按优先级降序排序关系
+        WITH c, nodes_with_degree, rels_with_priority
+        UNWIND rels_with_priority AS r
+        WITH c, nodes_with_degree, r
+        ORDER BY r.priority DESC
+        WITH c, nodes_with_degree, collect(r) AS sorted_rels
         RETURN c.id AS communityId,
-            [n in nodes | {id: n.id, description: n.description, type: [el in labels(n) WHERE el <> '__Entity__'][0]}] AS nodes,
-            [r in relationships | {start: startNode(r).id, type: type(r), end: endNode(r).id, description: r.description}] AS rels
+               nodes_with_degree AS nodes,
+               sorted_rels AS rels
         """
     )
     
@@ -179,7 +228,7 @@ def community_abstract(graph):
     batch_inputs = []
     community_id_map = {}  # 用于存储索引和对应的社区ID
     for idx, info in enumerate(community_info):
-        stringify_info = prepare_string(info)
+        stringify_info = prepare_prioritized_string(info)
         batch_inputs.append({'community_info': stringify_info})
         community_id_map[idx] = info['communityId']  # 使用索引作为键
 
@@ -195,7 +244,7 @@ def community_abstract(graph):
         })
     t2 = time.time()
     print("摘要耗时：",t2-t0,"秒")
-    print("\n")
+    print("")
 
     # 存储社区摘要
     graph.query("""

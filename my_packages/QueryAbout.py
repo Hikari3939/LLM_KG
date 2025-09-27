@@ -1,12 +1,12 @@
 import os
 from tqdm import tqdm
 from dotenv import load_dotenv
+from langchain_neo4j import Neo4jGraph
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Neo4jVector
 from langchain_core.output_parsers import StrOutputParser
-from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 加载环境变量
@@ -125,9 +125,6 @@ def local_retriever(query: str, response_type: str = response_type) -> str:
     {{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
 
     """
-
-
-        # 局部检索的提示词
     
     # 构建提示词
     lc_prompt = ChatPromptTemplate.from_messages(
@@ -315,33 +312,28 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
     reduce_chain = reduce_prompt | llm | StrOutputParser()
 
     # 连接Neo4j
-    graph = Neo4jGraph(
-        url=NEO4J_URI,
-        username=NEO4J_USERNAME,
-        password=NEO4J_PASSWORD,
-        refresh_schema=False,
-    )
-    # 直接获取所有社区
-    print("正在获取所有社区...")
+    graph = Neo4jGraph(refresh_schema=False)
+    
+    # 仅获取summary存在且不为空的社区
     community_data = graph.query(
         """
         MATCH (c:__Community__)
-        WHERE c.level = $level
+        WHERE c.level = $level 
+        AND c.summary IS NOT NULL 
+        AND c.summary <> ""
         RETURN c.id AS community_id, c.summary AS output
         ORDER BY c.id
         """,
         params={"level": level},
     )
     print(f"找到 {len(community_data)} 个社区")
+    
     # 并行处理所有社区
-    
     intermediate_results = []
-    max_workers = 6  # 并行线程数
+    max_workers = 12  # 并行线程数  
     
-    print(f"将并行处理所有 {len(community_data)} 个社区")
-    
+    # 处理单个社区的函数
     def process_community(community_info):
-        """处理单个社区的函数"""
         i, community = community_info
         context_data = f"社区编号: {community['community_id']}\n社区摘要: {community['output']}"
         
@@ -352,9 +344,8 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
             return i, intermediate_response, None
         except Exception as e:
             return i, None, str(e)
-    
+
     # 并行处理所有社区
-    
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # 提交所有任务
         future_to_community = {
@@ -362,7 +353,7 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
             for i, community in enumerate(community_data)
         }
         
-        # 使用进度条收集结果
+        # 使用进度条显示进度
         with tqdm(total=len(community_data), desc="处理社区", unit="个") as pbar:
             for future in as_completed(future_to_community):
                 i, response, error = future.result()
@@ -376,7 +367,8 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
                     intermediate_results.append(response)
                 
                 pbar.update(1)
-    # 再用LLM从每个社区摘要生成的中间结果生成最终的答复
+    
+    # 使用LLM从每个社区摘要生成的中间结果生成最终的答复
     final_response = reduce_chain.invoke(
         {
             "report_data": intermediate_results,
@@ -384,5 +376,6 @@ def global_retriever(query: str, level: int, response_type: str = response_type)
             "response_type": response_type,
         }
     )
+    
     # 返回LLM最终的答复
     return final_response
