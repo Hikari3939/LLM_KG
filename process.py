@@ -23,7 +23,8 @@ if __name__ == '__main__':
 
     # 加载BAAI/BGE-M3(3.7G显存)
     embeddings = HuggingFaceEmbeddings(
-                model_name="BAAI/bge-m3", 
+                model_name="BAAI/bge-m3",
+                model_kwargs = {"device": "cuda"},
                 cache_folder="./model"
             )
     print("Embedding模型成功加载")

@@ -2,8 +2,6 @@
 
 ## 文件结构
 
-- data                `原始数据`
-  - example.txt         `数据文件`
 - my_packages         `项目模块`
   - DatabaseAbout.py    `数据库操作模块`
   - DataLoader.py       `原始数据加载模块`
@@ -30,6 +28,10 @@
         # api-key
         DEEPSEEK_API_KEY = "Your deepseek api-key"
 
-- 使用指令：`pip install -r requirements.txt` 可以安装该项目需要的所有资源包
+- 需要在项目主目录建立data文件夹并放入相应txt文件作为数据源
+
+- 使用指令：`pip install -r requirements.txt` 安装该项目需要的所有资源包
 
 - Neo4j需要安装APOC和GDS插件
+  
+- 需要安装GPU对应版本的cuda和cuda对应版本的pytorch

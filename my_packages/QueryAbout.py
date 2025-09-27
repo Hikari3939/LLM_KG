@@ -11,32 +11,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 加载环境变量
 load_dotenv(".env")
+NEO4J_URI = os.environ.get("NEO4J_URI")
+NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 
-# 加载LLM与Embedding模型
+# 加载LLM
 llm = ChatDeepSeek(
     model='deepseek-chat',
     temperature=0.7
 )
 
-# Cypher查询专用LLM
-cypher_llm = ChatDeepSeek(
-    model='deepseek-chat',
-    temperature=0
-)
-
 # 加载Embedding模型
 embeddings = HuggingFaceEmbeddings(
-    model_name="BAAI/bge-m3", 
+    model_name="BAAI/bge-m3",
+    model_kwargs = {"device": "cuda"},
     cache_folder="./model"
 )
 
 # LLM以多段的形式回答问题。
 response_type: str = "多个段落"
-
-# 设置Neo4j的运行参数
-NEO4J_URI = os.environ.get("NEO4J_URI")
-NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 
 # 局部检索器
 def local_retriever(query: str, response_type: str = response_type) -> str:

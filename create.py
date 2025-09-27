@@ -270,6 +270,8 @@ if __name__ == '__main__':
             graph_documents_chunk_chunk_Id.append(chunk["chunk_id"])
         
         GraphAbout.merge_relationship_between_chunk_and_entites(graph, graph_documents_chunk_chunk_Id)
-    
+    print("知识图谱初步构建完成")
+    print("")
+
     # 关闭数据库
     graph.close()
