@@ -30,7 +30,7 @@ if __name__ == '__main__':
     print("Embedding模型成功加载")
     print('')
 
-    # 用['id', 'description']来计算实体结点的Embedding。
+    # 使用['id', 'description']计算实体结点的Embedding。
     vector = Neo4jVector.from_existing_graph(
         embeddings,
         node_label='__Entity__',
@@ -45,15 +45,23 @@ if __name__ == '__main__':
         os.environ["NEO4J_URI"],
         auth=(os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
     )
-    potential_duplicate_candidates = GraphAbout.knn_similarity(graph, gds) # K近邻算法初步筛选
+    
+    # K近邻算法初步筛选相似实体
+    potential_duplicate_candidates = GraphAbout.knn_similarity(graph, gds)
         
     # LLM进一步筛选
     merged_entities = LLMAbout.decide_entity_merge(potential_duplicate_candidates)
     GraphAbout.merge_similar_entities(graph, embeddings, merged_entities)
     print("相似实体成功合并")
     print('')
-    
+
+    # 清理孤立实体
+    largest_component_id, wcc_result = GraphAbout.find_largest_connected_component(gds)
+    GraphAbout.clean_isolated_entities(graph, largest_component_id, wcc_result)
+    print("孤立实体清理完成")
+
     # 构建社区
+    GraphAbout.clean_communities(graph)
     GraphAbout.build_communities(graph, gds)
     print("社区构建完成")
     print('')

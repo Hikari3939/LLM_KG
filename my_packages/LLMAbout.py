@@ -111,7 +111,7 @@ def decide_entity_merge(candidates):
 def prepare_prioritized_string(info, max_tokens=120000):
     nodes = info['nodes']
     rels = info['rels']
-    max_length = max_tokens / 0.8  # 1 个中文字符 ≈ 0.6 个 token
+    max_length = max_tokens / 0.6  # 1 个中文字符 ≈ 0.6 个 token
     
     # 构建节点ID到描述的映射
     node_desc_map = {node['id']: f"id: {node['id']}, type: {node['type']}, description: {node['description']}" 

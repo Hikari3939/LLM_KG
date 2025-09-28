@@ -397,6 +397,80 @@ def merge_similar_entities(graph, embeddings, merged_entities):
         """
     )
 
+# 找到最大的连通子图
+def find_largest_connected_component(gds):        
+    # 创建图投影
+    graph_name = "entity_graph"
+    
+    # 删除可能存在的旧投影
+    if gds.graph.exists(graph_name).exists:
+        gds.graph.drop(graph_name)
+    
+    # 创建包含所有实体节点的图投影
+    g, _ = gds.graph.project(
+        graph_name,
+        "__Entity__",
+        "*",
+    )
+            
+    # 使用弱连通分量算法
+    wcc_result = gds.wcc.stream(g)
+    
+    # 找到最大的连通组件
+    component_counts = wcc_result["componentId"].value_counts()
+    largest_component_id = component_counts.index[0]
+            
+    # 清理图投影
+    gds.graph.drop(g)
+    
+    return largest_component_id, wcc_result
+
+# 删除不属于最大连通子图的实体节点和关系
+def clean_isolated_entities(graph, largest_component_id, wcc_result):    
+    # 获取不属于最大连通组件的节点
+    isolated_nodes = wcc_result[wcc_result["componentId"] != largest_component_id]
+    
+    if len(isolated_nodes) == 0:
+        return
+        
+    # 构建Cypher查询来删除孤立节点及其关系
+    query = """
+    MATCH (e:__Entity__)
+    WHERE id(e) IN $node_ids
+    DETACH DELETE e
+    """
+    
+    # 执行删除操作
+    _ = graph.query(
+        query,
+        params={"node_ids": isolated_nodes["nodeId"].tolist()}
+    )
+
+# 清除旧的社区信息
+def clean_communities(graph):
+    # 删除所有社区节点及其关系
+    delete_communities_query = """
+    MATCH (c:__Community__)
+    DETACH DELETE c
+    """
+    
+    # 移除所有实体节点的communityIds属性
+    remove_community_property_query = """
+    MATCH (e:__Entity__)
+    WHERE e.communityIds IS NOT NULL
+    REMOVE e.communityIds
+    """
+    
+    try:
+        # 执行删除社区节点操作
+        graph.query(delete_communities_query)
+        
+        # 执行移除属性操作
+        graph.query(remove_community_property_query)
+                
+    except Exception as e:
+        print(f"清理社区时发生错误: {str(e)}")
+
 # 使用SLLPA社区发现算法构建社区
 def build_communities(graph, gds):
     # 建立子图投影
