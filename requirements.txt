@@ -6,6 +6,7 @@ pydantic
 langgraph
 langsmith
 langchain
+streamlit
 python-dotenv
 langchain-core
 beautifulsoup4
