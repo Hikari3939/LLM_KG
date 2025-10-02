@@ -1,18 +1,34 @@
-from my_packages.QueryAbout import llm, response_type
+from my_packages.QueryAbout import llm, response_type, NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
 from langchain_core.prompts import PromptTemplate
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, RemoveMessage
 from langgraph.graph import END, StateGraph, START
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import MemorySaver
-from typing import Annotated, Literal, Sequence, TypedDict
+from typing import Annotated, Literal, Sequence, TypedDict, Dict, Any
 import pprint
+import pandas as pd
+import re
+from neo4j import GraphDatabase, Result
 
 # 使用QueryAbout中已有的检索器和提示词
 from my_packages.QueryAbout import local_retriever, global_retriever, response_type, REDUCE_SYSTEM_PROMPT
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+
+# 溯源查验相关配置
+recursion_limit = 5
+
+# 创建Neo4j数据库连接
+driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
+
+# 执行Cypher查询
+def db_query(cypher: str, params: Dict[str, Any] = {}) -> pd.DataFrame:
+    """执行Cypher语句并返回DataFrame"""
+    return driver.execute_query(
+        cypher, parameters_=params, result_transformer_=Result.to_df
+    )
 
 # 创建局部检索器工具
 @tool
@@ -26,8 +42,14 @@ def global_retriever_tool(query: str) -> str:
     """回答有关知识图谱的全局性、综合性问题，通过分析多个社区摘要来提供全面答案。适用于需要综合分析、总结性回答、趋势分析、比较分析、整体概述等宏观问题。例如：整体趋势分析、多个概念的比较、知识图谱的全局概况等。"""
     return global_retriever(query, level=0)
 
-# 工具列表包含局部检索器和全局检索器
-tools = [local_retriever_tool, global_retriever_tool]
+# 溯源查验工具
+@tool
+def get_source_tool(sourcedId: str) -> str:
+    """根据给定的ID查看文本块或社区，输出成HTML文本。用于溯源查验功能。"""
+    return get_source(sourcedId)
+
+# 工具列表包含局部检索器、全局检索器和溯源查验工具
+tools = [local_retriever_tool, global_retriever_tool, get_source_tool]
 
 # Agent state ------------------------------------------------------------------
 # 调试时如果要查看每个节点输入输出的状态，可以用这个函数插入打印的语句
@@ -302,7 +324,7 @@ workflow.add_edge("reduce", END)
 # Finally, we compile it!
 # This compiles it into a LangChain Runnable,
 # meaning you can use it as you would any other runnable
-graph = workflow.compile(checkpointer=memory)
+agent = workflow.compile(checkpointer=memory)
 
 # Run --------------------------------------------------------------------------
 # 限制rewrite的次数，以免陷入无限的循环
@@ -321,3 +343,114 @@ def get_answer(config):
     chat_history = memory.get(config)["channel_values"]["messages"]
     answer = chat_history[-1].content
     return answer
+
+# 溯源查验功能函数 ----------------------------------------------------------------
+def get_source(sourcedId):
+    """根据给定的ID查看文本块或社区，输出成HTML文本。"""
+    ChunkCypher = """
+    match (n:`__Chunk__`) where n.id=$id return n.fileName, n.text
+    """
+    CommunityCypher = """
+    match (n:`__Community__`) where n.id=$id return n.summary, n.full_content    
+    """
+    
+    temp = sourcedId.split(",")
+    if temp[0] == '2':
+        result = db_query(ChunkCypher, params={"id": temp[-1]})
+    else:
+        result = db_query(CommunityCypher, params={"id": temp[-1]})
+    
+    if result.shape[0] > 0:
+        resp = result.iloc[0, 0] + "\n\n" + result.iloc[0, 1]
+        resp = resp.replace("\n", "<br/>")
+    else:
+        resp = "在知识图谱中没有检索到该语料。"
+    return resp
+
+def user_config(sessionId):
+    """用户session对象，以session ID为thread_id"""
+    config = {"configurable": {"thread_id": sessionId, "recursion_limit": recursion_limit}}
+    return config
+
+def format_messages(messages):
+    """格式化输出成HTML文本"""
+    resp = ""
+    for message in messages:
+        # 函数调用的AIMessage和ToolMessage不输出显示
+        if isinstance(message, AIMessage) and len(message.content) > 0:
+            resp = resp + "AI: " + message.content + "\n\n"
+        if isinstance(message, HumanMessage):
+            resp = resp + "User: " + message.content + "\n"
+    resp = resp.replace("\n", "<br/>")
+    return resp
+
+def add_links_to_text(text):
+    """为数据引用加上溯源的链接"""
+    # 定义正则表达式模式
+    points_pattern = re.compile(r"\{'points':\[(.*?)\]\}")
+    chunks_pattern = re.compile(r"'Chunks':\[(.*?)\]")
+    
+    # 替换points中的id为链接
+    def replace_points(match):
+        points = match.group(1)
+        points_with_links = re.sub(r"\((\d+),'([0-9a-fA-F-]+)'\)", 
+                                  lambda m: f"<a href='javascript:showInfo(\"1,{m.group(1)},{m.group(2)}\")'>({m.group(1)},'{m.group(2)}')</a>", 
+                                  points)
+        return f"{{'points':[{points_with_links}]}}"
+    
+    # 替换chunks中的id为链接
+    def replace_chunks(match):
+        chunks = match.group(1)
+        chunk_ids = re.findall(r"'([^']+)'", chunks)
+        for chunk_id in chunk_ids:
+            chunks = chunks.replace(f"'{chunk_id}'", f"<a href='javascript:showInfo(\"2,{chunk_id}\")'>'{chunk_id}'</a>")
+        return f"'Chunks':[{chunks}]"
+    
+    # 替换文本中的points和chunks
+    result = points_pattern.sub(replace_points, text)
+    result = chunks_pattern.sub(replace_chunks, result)
+    
+    return result
+
+def ask_agent_with_source(query, sessionId):
+    """执行一轮对话，包含溯源查验功能"""
+    config = user_config(sessionId)
+    inputs = {"messages": [("user", query)]}
+    try:
+        agent.invoke(inputs, config=config)
+        messages = agent.get_state(config).values["messages"]
+        # 对话记录格式化输出成文本
+        response = format_messages(messages)
+        # 为数据引用加上溯源的链接
+        response = add_links_to_text(response)
+    except Exception as e:
+        response = repr(e)
+    return response
+
+def clear_session(sessionId):
+    """清除对话历史"""
+    config = user_config(sessionId)
+    try:
+        messages = agent.get_state(config).values["messages"]
+        # 要后入先删的次序到过来删，否则会抛Exception。
+        i = len(messages)
+        for message in reversed(messages):
+            # 如果倒数第3条消息是ToolMessage，保留前面4条信息，它是一轮完整的对话。
+            if i == 4 and isinstance(messages[2], ToolMessage):
+                break
+            agent.update_state(config, {"messages": RemoveMessage(id=message.id)})
+            i = i - 1
+            # 保留第1轮对话。
+            if i == 2:
+                break
+        messages = agent.get_state(config).values["messages"]
+        return format_messages(messages)
+    except Exception as e:
+        print(e)
+        return str(e)
+
+def get_messages(sessionId):
+    """获取对话的上下文"""
+    config = user_config(sessionId)
+    messages = agent.get_state(config).values["messages"]
+    return messages

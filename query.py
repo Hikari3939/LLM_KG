@@ -1,19 +1,9 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-使用Agent进行问答的示例脚本
-"""
-
-from agent import graph, ask_agent, get_answer
+from agent import agent, ask_agent, get_answer
 
 def main():
-    """主函数，演示如何使用Agent回答问题"""
     # 配置参数
     config = {"configurable": {"thread_id": "test_thread", "recursion_limit": 5}}
-    
-    print("=== 知识图谱智能问答Agent ===")
     print("输入 'quit' 退出程序")
-    print("=" * 50)
     
     while True:
         try:
@@ -32,7 +22,7 @@ def main():
             print("-" * 50)
             
             # 向agent提问
-            ask_agent(query, graph, config)
+            ask_agent(query, agent, config)
             
             # 获取最终答案
             answer = get_answer(config)
