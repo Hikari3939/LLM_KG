@@ -318,17 +318,11 @@ def community_abstract(graph):
                         [n IN nodes_with_degree WHERE n.id = endNode(r).id | n.degree][0]
                     )
                 }] AS rels_with_priority
-        // 按节点度降序排序节点
-        WITH c, nodes_with_degree, rels_with_priority
-        UNWIND nodes_with_degree AS n
-        WITH c, rels_with_priority, n
-        ORDER BY n.degree DESC
-        // 按优先级降序排序关系
-        WITH c, collect(n) AS sorted_nodes, rels_with_priority
-        UNWIND rels_with_priority AS r  // 这样会遗漏不存在关系的社区，但不方便修改，因此暂时保留
-        WITH c, sorted_nodes, r
-        ORDER BY r.priority DESC
-        WITH c, sorted_nodes, collect(r) AS sorted_rels
+        WITH c,
+            // 按节点度降序排序节点
+            apoc.coll.sortMaps(nodes_with_degree, "degree") AS sorted_nodes,
+            // 按优先级降序排序关系
+            apoc.coll.sortMaps(rels_with_priority, "priority") AS sorted_rels
         RETURN c.id AS communityId,
                sorted_nodes AS nodes,
                sorted_rels AS rels
