@@ -15,7 +15,7 @@ from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.messages import AIMessage, HumanMessage
 from langsmith import traceable
 
-# 加载环境变量
+# 环境变量配置
 load_dotenv(".env")
 NEO4J_URI = os.environ.get("NEO4J_URI")
 NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
@@ -23,68 +23,27 @@ NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 LANGCHAIN_API_KEY = os.environ.get("LANGCHAIN_API_KEY")
 
-# 加载LLM
+# LLM配置
 llm = ChatDeepSeek(
     model='deepseek-chat',
     temperature=0.7
 )
 
-# 加载Embedding模型
+# 嵌入模型配置
 embeddings = HuggingFaceEmbeddings(
     model_name="BAAI/bge-m3",
     model_kwargs = {"device": "cpu"},
     cache_folder="./model"
 )
 
-# LLM以多段的形式回答问题。
+# 响应类型配置
 response_type: str = "多个段落"
 
-# 全局检索器REDUCE阶段系统提示词
-REDUCE_SYSTEM_PROMPT = """
----角色--- 
-你是一个有用的助手，请根据用户输入的上下文，综合上下文中多个要点列表的数据，来回答问题，并遵守回答要求。
 
----任务描述--- 
-总结来自多个不同要点列表的数据，生成要求长度和格式的回复，以回答用户的问题。 
-
----回答要求---
-- 你要严格根据要点列表的内容回答，禁止根据常识和已知信息回答问题。
-- 对于不知道的信息，直接回答"不知道"。
-- 最终的回复应删除要点列表中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有选用的要点及其含义，并符合要求的长度和格式。 
-- 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
-- 回复应保留之前包含在要点列表中的要点引用，并且包含引用要点来源社区原始的communityId，但不要提及各个要点在分析过程中的作用。 
-- **不要在一个引用中列出超过5个要点引用的ID**，相反，列出前5个最相关要点引用的顺序号作为ID。 
-- 不要包括没有提供支持证据的信息。
-例如： 
-#############################
-"X是Y公司的所有者，他也是X公司的首席执行官{{'points':[(1,'0-0'),(3,'0-0')]}}，
-受到许多不法行为指控{{'points':[(2,'0-0'), (3,'0-0'), (6,'0-1'), (9,'0-1'), (10,'0-3')]}}。" 
-其中1、2、3、6、9、10表示相关要点引用的顺序号，'0-0'、'0-1'、'0-3'是要点来源的communityId。 
-#############################
-
----回复的长度和格式--- 
-- {response_type}
-- 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
-- 输出要点引用的格式：
-{{'points': [逗号分隔的要点元组]}}
-每个要点元组的格式如下：
-(要点顺序号, 来源社区的communityId)
-例如：
-{{'points':[(1,'0-0'),(3,'0-0')]}}
-{{'points':[(2,'0-0'), (3,'0-0'), (6,'0-1'), (9,'0-1'), (10,'0-3')]}}
-- 要点引用的说明放在引用之后，不要单独作为一段。
-例如： 
-#############################
-"X是Y公司的所有者，他也是X公司的首席执行官{{'points':[(1,'0-0'),(3,'0-0')]}}，
-受到许多不法行为指控{{'points':[(2,'0-0'), (3,'0-0'), (6,'0-1'), (9,'0-1'), (10,'0-3')]}}。" 
-其中1、2、3、6、9、10表示相关要点引用的顺序号，'0-0'、'0-1'、'0-3'是要点来源的communityId。
-#############################
-"""
-
-# 局部检索器
 @traceable
 def local_retriever(query: str, response_type: str = response_type, chat_history=None) -> str:
-    # 检索语料数量限制
+    """局部检索器：检索知识图谱中的具体信息"""
+    # 检索参数配置
     topChunks = 3
     topCommunities = 3
     topOutsideRels = 10
@@ -306,13 +265,10 @@ def local_retriever(query: str, response_type: str = response_type, chat_history
         return lc_response
 
 
-# 全局检索器 - MAP阶段
 @traceable
 def global_retriever(query: str, level: int) -> str:
-    """
-    全局检索器的MAP阶段，只返回中间结果（要点列表）
-    """
-    # MAP阶段生成中间结果的prompt与chain
+    """全局检索器：合并MAP和REDUCE阶段，直接返回最终答案"""
+    # MAP阶段配置
     map_system_prompt = """
     ---角色--- 
     你是一位有用的助手，可以回答有关所提供社区摘要的问题。 
@@ -373,10 +329,72 @@ def global_retriever(query: str, level: int) -> str:
     )
     map_chain = map_prompt | llm | StrOutputParser()
     
-    # 连接Neo4j
+    # REDUCE阶段配置
+    reduce_system_prompt = """
+    ---角色--- 
+    你是一个有用的助手，请根据用户输入的上下文，综合上下文中多个要点列表的数据，来回答问题，并遵守回答要求。
+
+    ---任务描述--- 
+    总结来自多个不同要点列表的数据，生成要求长度和格式的回复，以回答用户的问题。 
+
+    ---回答要求---
+    - 你要严格根据要点列表的内容回答，禁止根据常识和已知信息回答问题。
+    - 对于不知道的信息，直接回答"不知道"。
+    - 最终的回复应删除要点列表中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有选用的要点及其含义，并符合要求的长度和格式。 
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
+    - 回复应保留之前包含在要点列表中的要点引用，并且包含引用要点来源社区原始的communityId，但不要提及各个要点在分析过程中的作用。 
+    - **不要在一个引用中列出超过5个要点引用的ID**，相反，列出前5个最相关要点引用的顺序号作为ID。 
+    - 不要包括没有提供支持证据的信息。
+    例如： 
+    #############################
+    "X是Y公司的所有者，他也是X公司的首席执行官{{'points':[(1,'0-0'),(3,'0-0')]}}，
+    受到许多不法行为指控{{'points':[(2,'0-0'), (3,'0-0'), (6,'0-1'), (9,'0-1'), (10,'0-3')]}}。" 
+    其中1、2、3、6、9、10表示相关要点引用的顺序号，'0-0'、'0-1'、'0-3'是要点来源的communityId。 
+    #############################
+
+    ---回复的长度和格式--- 
+    - {response_type}
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
+    - 输出要点引用的格式：
+    {{'points': [逗号分隔的要点元组]}}
+    每个要点元组的格式如下：
+    (要点顺序号, 来源社区的communityId)
+    例如：
+    {{'points':[(1,'0-0'),(3,'0-0')]}}
+    {{'points':[(2,'0-0'), (3,'0-0'), (6,'0-1'), (9,'0-1'), (10,'0-3')]}}
+    - 要点引用的说明放在引用之后，不要单独作为一段。
+    例如： 
+    #############################
+    "X是Y公司的所有者，他也是X公司的首席执行官{{'points':[(1,'0-0'),(3,'0-0')]}}，
+    受到许多不法行为指控{{'points':[(2,'0-0'), (3,'0-0'), (6,'0-1'), (9,'0-1'), (10,'0-3')]}}。" 
+    其中1、2、3、6、9、10表示相关要点引用的顺序号，'0-0'、'0-1'、'0-3'是要点来源的communityId。
+    #############################
+    """
+    
+    reduce_prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                reduce_system_prompt,
+            ),
+            (
+                "human",
+                """
+            ---分析报告--- 
+            {report_data}
+
+            用户的问题是：
+            {question}
+                """,
+            ),
+        ]
+    )
+    reduce_chain = reduce_prompt | llm | StrOutputParser()
+    
+    # 数据库连接
     graph = Neo4jGraph(refresh_schema=False)
     
-    # 仅获取summary存在且不为空的社区
+    # 查询社区数据
     community_data = graph.query(
         """
         MATCH (c:__Community__)
@@ -389,11 +407,11 @@ def global_retriever(query: str, level: int) -> str:
     )
     print(f"找到 {len(community_data)} 个社区")
     
-    # 并行处理所有社区
+    # 并行处理配置
     intermediate_results = []
-    max_workers = 12  # 并行线程数  
+    max_workers = 12
     
-    # 处理单个社区的函数
+    # 社区处理函数
     def process_community(community_info):
         i, community = community_info
         context_data = community["output"]
@@ -406,15 +424,14 @@ def global_retriever(query: str, level: int) -> str:
         except Exception as e:
             return i, None, str(e)
 
-    # 并行处理所有社区
+    # 执行并行处理
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # 提交所有任务
         future_to_community = {
             executor.submit(process_community, (i, community)): i 
             for i, community in enumerate(community_data)
         }
         
-        # 使用进度条显示进度
+        # 进度显示
         with tqdm(total=len(community_data), desc="处理社区", unit="个") as pbar:
             for future in as_completed(future_to_community):
                 i, response, error = future.result()
@@ -429,35 +446,29 @@ def global_retriever(query: str, level: int) -> str:
                 
                 pbar.update(1)
     
-    # 返回MAP阶段的中间结果
-    return intermediate_results
+    # 生成最终答案
+    if intermediate_results:
+        combined_results = "\n\n".join(intermediate_results)
+        
+        # 调用REDUCE阶段
+        final_response = reduce_chain.invoke(
+            {
+                "report_data": combined_results,
+                "question": query,
+                "response_type": response_type,
+            }
+        )
+        return final_response
+    else:
+        return "抱歉，没有找到相关的信息来回答您的问题。"
 
-# 辅助函数：管理聊天历史
 def add_to_chat_history(question, answer, chat_history_list):
-    """
-    将问答对添加到对话历史中
-    
-    Args:
-        question: 用户问题
-        answer: AI回答
-        chat_history_list: 对话历史列表
-    
-    Returns:
-        list: 更新后的对话历史
-    """
+    """将问答对添加到对话历史中"""
     chat_history_list.append(HumanMessage(content=question))
     chat_history_list.append(AIMessage(content=answer))
     return chat_history_list
 
 def clear_chat_history(chat_history_list):
-    """
-    清空对话历史
-    
-    Args:
-        chat_history_list: 对话历史列表
-    
-    Returns:
-        list: 空的对话历史列表
-    """
+    """清空对话历史"""
     chat_history_list.clear()
     return chat_history_list

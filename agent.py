@@ -12,7 +12,7 @@ import re
 from neo4j import GraphDatabase, Result
 
 # 使用QueryAbout中已有的检索器和提示词
-from my_packages.QueryAbout import local_retriever, global_retriever, response_type, REDUCE_SYSTEM_PROMPT
+from my_packages.QueryAbout import local_retriever, global_retriever, response_type
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
@@ -70,10 +70,10 @@ class AgentState(TypedDict):
 
 ### Edges
 
-def grade_documents(state) -> Literal["generate", "rewrite", "reduce"]:
+def grade_documents(state) -> Literal["generate", "rewrite"]:
     """
     分流边：对工具调用的结果进行分流处理。
-    如果是全局检索，转到reduce结点生成回复。
+    如果是全局检索，直接转到generate结点（因为全局检索已经包含完整的MAP-REDUCE流程）。
     如果是局部检索并且检索结果与问题相关，转到generate结点生成回复。
     如果是局部检索并且检索结果与问题不相关，转到rewrite结点重构问题。
 
@@ -88,10 +88,10 @@ def grade_documents(state) -> Literal["generate", "rewrite", "reduce"]:
     # 倒数第2条消息是LLM发出工具调用请求的AIMessage。
     retrieve_message = messages[-2]
     
-    # 如果是全局查询直接转去reduce结点。
+    # 如果是全局查询直接转去generate结点（因为全局检索已经包含完整的MAP-REDUCE流程）。
     if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"] == 'global_retriever_tool':
         print("---Global retrieve---")
-        return "reduce"
+        return "generate"
 
     print("---CHECK RELEVANCE---")
 
@@ -172,13 +172,33 @@ def rewrite(state):
 
     msg = [
         HumanMessage(
-            content=f""" \n 
-    Look at the input and try to reason about the underlying semantic intent / meaning. \n 
-    Here is the initial question:
-    \n ------- \n
-    {question} 
-    \n ------- \n
-    Formulate an improved question: """,
+            content=f"""
+    你是一个专业的查询重构助手，专门优化知识图谱查询问题。
+
+    ## 任务描述
+    分析用户的问题，理解其真实意图，并重构为一个更清晰、更具体、更适合知识图谱检索的问题。
+
+    ## 原始问题
+    {question}
+
+    ## 重构原则
+    1. **明确实体和关系**：识别问题中涉及的具体实体、概念、关系
+    2. **增加上下文**：如果问题过于模糊，添加必要的上下文信息
+    3. **具体化描述**：将抽象概念转化为具体的、可检索的描述
+    4. **保持原意**：确保重构后的问题保持用户的原始意图
+    5. **优化检索**：使问题更适合向量相似性搜索和知识图谱查询
+
+    ## 重构策略
+    - 如果问题太宽泛，添加限定条件或具体领域
+    - 如果问题太简单，扩展为更详细的描述
+    - 如果问题包含模糊词汇，替换为更精确的术语
+    - 如果问题缺少关键信息，基于常识合理补充
+
+    ## 输出要求
+    只输出重构后的问题，不要添加任何解释或额外内容。
+
+    重构后的问题：
+    """,
         )
     ]
 
@@ -189,57 +209,6 @@ def rewrite(state):
     return {"messages": [response]}
 
 
-def reduce(state):
-    """
-    Generate answer for global retrieve - REDUCE stage
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-         dict: The updated state with final answer
-    """
-    print("---REDUCE---")
-    messages = state["messages"]
-    
-    # 在对话历史中，问题消息是倒数第3条。
-    question = messages[-3].content
-    # 检索结果在最后一条消息中（这是global_retriever_tool返回的MAP阶段结果）
-    last_message = messages[-1]
-    map_results = last_message.content
-
-    # Reduce阶段生成最终结果的prompt与chain
-    reduce_prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                REDUCE_SYSTEM_PROMPT,
-            ),
-            (
-                "human",
-                """
-            ---分析报告--- 
-            {report_data}
-
-            用户的问题是：
-            {question}
-                """,
-            ),
-        ]
-    )
-    reduce_chain = reduce_prompt | llm | StrOutputParser()
-
-    # 再用LLM从每个社区摘要生成的中间结果生成最终的答复
-    response = reduce_chain.invoke(
-        {
-            "report_data": map_results,
-            "question": question,
-            "response_type": response_type,
-        }
-    )
-    # 明确返回一条AIMessage。
-    return {"messages": [AIMessage(content = response)]}
-
 def generate(state):
     """
     Generate answer
@@ -248,7 +217,7 @@ def generate(state):
         state (messages): The current state
 
     Returns:
-         dict: The updated state with re-phrased question
+         dict: The updated state with final answer
     """
     print("---GENERATE---")
     messages = state["messages"]
@@ -256,13 +225,19 @@ def generate(state):
     question = messages[-3].content
     
     last_message = messages[-1]
-
     docs = last_message.content
 
-    # 直接使用QueryAbout中的local_retriever函数
-    response = local_retriever(question)
+    # 检查是否是全局检索的结果
+    retrieve_message = messages[-2]
+    if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"] == 'global_retriever_tool':
+        # 全局检索已经包含完整的MAP-REDUCE流程，直接返回结果
+        response = docs
+    else:
+        # 局部检索，使用local_retriever函数
+        print("---LOCAL RETRIEVE---")
+        response = local_retriever(question)
+        print("---END LOCAL RETRIEVE---")
     
-    # 这里有个Bug，response是String，generate节点返回的消息会自动判定为HumanMessage，其实是AIMessage。
     # 明确返回一条AIMessage。
     return {"messages": [AIMessage(content = response)]}
   
@@ -285,11 +260,6 @@ workflow.add_node("rewrite", rewrite)  # Re-writing the question
 workflow.add_node(
     "generate", generate
 )  # Generating a response after we know the documents are relevant
-# Call agent node to decide to retrieve or not
-# 增加一个全局查询的reduce结点
-workflow.add_node(
-    "reduce", reduce
-)
 
 # 定义结点之间的连接
 # 从agent结点开始
@@ -307,7 +277,7 @@ workflow.add_conditional_edges(
     },
 )
 
-# 检索结点执行结束后调边grade_documents，决定流转到哪个结点: generate、rewrite、reduce。
+# 检索结点执行结束后调边grade_documents，决定流转到哪个结点: generate、rewrite。
 workflow.add_conditional_edges(
     "retrieve",
     # Assess agent decision
@@ -317,8 +287,6 @@ workflow.add_conditional_edges(
 workflow.add_edge("generate", END)
 # 如果是重构问题，转到agent结点重新开始。
 workflow.add_edge("rewrite", "agent")
-# 增加一条全局查询到结束的边
-workflow.add_edge("reduce", END)
 
 # Compile
 # Finally, we compile it!
@@ -351,7 +319,7 @@ def get_source(sourcedId):
     match (n:`__Chunk__`) where n.id=$id return n.fileName, n.text
     """
     CommunityCypher = """
-    match (n:`__Community__`) where n.id=$id return n.summary, n.full_content    
+    match (n:`__Community__`) where n.id=$id return n.summary, n.id    
     """
     
     temp = sourcedId.split(",")
@@ -361,7 +329,10 @@ def get_source(sourcedId):
         result = db_query(CommunityCypher, params={"id": temp[-1]})
     
     if result.shape[0] > 0:
-        resp = result.iloc[0, 0] + "\n\n" + result.iloc[0, 1]
+        if temp[0] == '2':  # Chunk
+            resp = result.iloc[0, 0] + "\n\n" + result.iloc[0, 1]
+        else:  # Community
+            resp = "社区摘要:\n" + result.iloc[0, 0] + "\n\n社区ID: " + result.iloc[0, 1]
         resp = resp.replace("\n", "<br/>")
     else:
         resp = "在知识图谱中没有检索到该语料。"
@@ -373,59 +344,43 @@ def user_config(sessionId):
     return config
 
 def format_messages(messages):
-    """格式化输出成HTML文本"""
+    """格式化输出成文本，只返回AI回复"""
     resp = ""
     for message in messages:
-        # 函数调用的AIMessage和ToolMessage不输出显示
+        # 只输出AIMessage的内容，不添加前缀
         if isinstance(message, AIMessage) and len(message.content) > 0:
-            resp = resp + "AI: " + message.content + "\n\n"
-        if isinstance(message, HumanMessage):
-            resp = resp + "User: " + message.content + "\n"
-    resp = resp.replace("\n", "<br/>")
+            resp = resp + message.content
     return resp
 
 def add_links_to_text(text):
-    """为数据引用加上溯源的链接"""
-    # 定义正则表达式模式
-    points_pattern = re.compile(r"\{'points':\[(.*?)\]\}")
-    chunks_pattern = re.compile(r"'Chunks':\[(.*?)\]")
-    
-    # 替换points中的id为链接
-    def replace_points(match):
-        points = match.group(1)
-        points_with_links = re.sub(r"\((\d+),'([0-9a-fA-F-]+)'\)", 
-                                  lambda m: f"<a href='javascript:showInfo(\"1,{m.group(1)},{m.group(2)}\")'>({m.group(1)},'{m.group(2)}')</a>", 
-                                  points)
-        return f"{{'points':[{points_with_links}]}}"
-    
-    # 替换chunks中的id为链接
-    def replace_chunks(match):
-        chunks = match.group(1)
-        chunk_ids = re.findall(r"'([^']+)'", chunks)
-        for chunk_id in chunk_ids:
-            chunks = chunks.replace(f"'{chunk_id}'", f"<a href='javascript:showInfo(\"2,{chunk_id}\")'>'{chunk_id}'</a>")
-        return f"'Chunks':[{chunks}]"
-    
-    # 替换文本中的points和chunks
-    result = points_pattern.sub(replace_points, text)
-    result = chunks_pattern.sub(replace_chunks, result)
-    
-    return result
+    """保持原始引用格式，用于溯源查询"""
+    # 保持原始的引用格式，不转换为HTML链接
+    return text
 
 def ask_agent_with_source(query, sessionId):
     """执行一轮对话，包含溯源查验功能"""
     config = user_config(sessionId)
-    inputs = {"messages": [("user", query)]}
+    
+    # 创建新的用户消息
+    new_message = HumanMessage(content=query)
+    
     try:
-        agent.invoke(inputs, config=config)
+        # 使用stream方式获取详细的调试信息，传入完整的消息历史
+        for output in agent.stream({"messages": [new_message]}, config=config):
+            for key, value in output.items():
+                pprint.pprint(f"Output from node '{key}':")
+                pprint.pprint("---")
+                pprint.pprint(value, indent=2, width=80, depth=None)
+            pprint.pprint("\n---\n")
+        
         messages = agent.get_state(config).values["messages"]
-        # 对话记录格式化输出成文本
-        response = format_messages(messages)
-        # 为数据引用加上溯源的链接
-        response = add_links_to_text(response)
+        # 只获取最后一条AIMessage的内容，保持引用格式用于溯源
+        for message in reversed(messages):
+            if isinstance(message, AIMessage) and len(message.content) > 0:
+                return message.content
+        return "抱歉，没有获取到有效回复。"
     except Exception as e:
-        response = repr(e)
-    return response
+        return f"抱歉，查询过程中出现错误：{str(e)}"
 
 def clear_session(sessionId):
     """清除对话历史"""

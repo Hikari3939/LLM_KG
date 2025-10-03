@@ -1,161 +1,374 @@
 import streamlit as st
 import time
 import re
+import uuid
+import datetime
 
-# 配置与样式设置
+# 模块导入
+try:
+    from agent import ask_agent_with_source, get_source, clear_session, agent, user_config
+    from langchain_core.messages import HumanMessage, AIMessage, RemoveMessage
+    AGENT_AVAILABLE = True
+except ImportError as e:
+    st.error(f"无法导入agent模块: {e}")
+    AGENT_AVAILABLE = False
+    # 占位函数
+    def ask_agent_with_source(prompt, session_id):
+        return "Agent模块不可用，请检查依赖安装"
+    def get_source(source_id):
+        return "Agent模块不可用，请检查依赖安装"
+    def clear_session():
+        pass
+    def sync_messages_to_agent(messages, session_id):
+        pass
+
+# 页面配置
 def setup_page_config():
     """配置页面基本设置"""
-    st.set_page_config(
-        page_title="脑卒中智能问答系统",
-        layout="wide",
-        initial_sidebar_state="collapsed"
-    )
+    try:
+        st.set_page_config(
+            page_title="GraphRAG - 知识图谱智能问答",
+            layout="wide",
+            initial_sidebar_state="expanded",
+            menu_items={
+                'Get Help': 'https://github.com/your-repo',
+                'Report a bug': 'https://github.com/your-repo/issues',
+                'About': "基于知识图谱的智能问答系统"
+            }
+        )
+    except Exception as e:
+        st.error(f"页面配置错误: {e}")
 
 def setup_custom_styles():
-    """设置自定义CSS样式"""
+    """设置自定义样式"""
     st.markdown("""
     <style>
-        /* 用户消息气泡样式 */
-        .user-msg {
-            background-color: #DCF8C6;
+        /* 全局蓝紫色主题 */
+        :root {
+            --primary-color: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --secondary-color: #8b5cf6;
+            --accent-color: #a855f7;
+            --text-primary: #1e1b4b;
+            --text-secondary: #4c1d95;
+            --bg-primary: #f8fafc;
+            --bg-secondary: #f1f5f9;
+        }
+        
+        /* 侧边栏基础样式 */
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #f8fafc 0%, #e0e7ff 100%);
+            min-width: 300px !important;
+            max-width: 350px !important;
+            border-right: 2px solid var(--primary-color);
+        }
+        
+        /* 隐藏Streamlit默认元素 */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        .stDeployButton {visibility: hidden;}
+        
+        
+        .sidebar-title {
+            text-align: center;
+            margin-bottom: 1rem;
+            font-size: 1.8rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 50%, var(--accent-color) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 4px 8px rgba(99, 102, 241, 0.3);
+            letter-spacing: 1px;
+            position: relative;
+            animation: titleGlow 3s ease-in-out infinite alternate;
+            padding: 8px 16px;
+            border-radius: 12px;
+            background-color: rgba(99, 102, 241, 0.05);
+        }
+        
+        @keyframes titleGlow {
+            0% {
+                text-shadow: 0 4px 8px rgba(99, 102, 241, 0.3), 0 0 20px rgba(99, 102, 241, 0.2);
+            }
+            100% {
+                text-shadow: 0 4px 8px rgba(99, 102, 241, 0.5), 0 0 30px rgba(139, 92, 246, 0.3);
+            }
+        }
+        
+        .sidebar-subtitle {
+            text-align: center;
+            margin-bottom: 1.5rem;
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+        
+        
+        /* 主内容区域样式 */
+        .main .block-container {
+            padding-top: 1rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            background: var(--bg-primary);
+        }
+        
+        /* 消息样式 */
+        .message-user {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
             padding: 12px 16px;
-            border-radius: 18px 18px 0 18px;
-            margin: 6px 0;
-            max-width: 80%;
+            border-radius: 16px 16px 4px 16px;
+            margin: 8px 0;
+            max-width: 70%;
             margin-left: auto;
-            display: block;
-            line-height: 1.5;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            margin-right: 0;
+            word-wrap: break-word;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
         }
         
-        /* 助手消息气泡样式 */
-        .agent-msg {
-            background-color: #FFFFFF;
+        .message-ai {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            color: var(--text-primary);
             padding: 12px 16px;
-            border-radius: 18px 18px 18px 0;
-            margin: 6px 0;
-            max-width: 80%;
-            border: 1px solid #eee;
-            display: block;
-            line-height: 1.5;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            border-radius: 16px 16px 16px 4px;
+            margin: 8px 0;
+            max-width: 70%;
+            margin-left: 0;
+            margin-right: auto;
+            word-wrap: break-word;
+            border: 1px solid var(--primary-light);
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
         }
         
-        /* 欢迎框样式 */
-        .welcome-box {
-            text-align: center;
-            color: #666;
+        .identifier-highlight {
+            color: var(--primary-color);
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+        }
+        
+        /* 按钮样式 */
+        .stButton > button {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+        
+        .stButton > button:hover {
+            background: linear-gradient(135deg, var(--primary-dark) 0%, var(--accent-color) 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        
+        /* 删除按钮特殊样式 */
+        .stButton > button[title="删除对话"] {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
             font-size: 16px;
-            padding: 20px;
+            font-weight: bold;
+            min-width: 32px;
+            height: 32px;
+            padding: 0;
         }
         
-        .welcome-box h3 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 18px;
+        .stButton > button[title="删除对话"]:hover {
+            background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
         }
         
-        /* 溯源按钮样式 */
-        .stButton>button {
-            background-color: transparent !important;
-            color: #1a73e8 !important;
-            border: none !important;
-            padding: 0 !important;
-            font-size: inherit !important;
-            text-decoration: underline !important;
-            cursor: pointer !important;
-            margin-left: 5px;
-            display: inline-block;
+        /* 输入框样式 */
+        .stChatInput > div > div > div > input {
+            border: 2px solid var(--primary-light);
+            border-radius: 12px;
+            background: white;
         }
         
-        .stButton>button:hover {
-            color: #0d47a1 !important;
+        .stChatInput > div > div > div > input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
         }
-
-        /* 页脚样式 */
-        .footer {
-            font-size: 12px;
-            color: #999;
+        
+        /* 欢迎界面样式 */
+        .welcome-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 50vh;
+            padding: 2rem;
+        }
+        
+        .welcome-content {
             text-align: center;
-            margin-top: 20px;
+            max-width: 500px;
+        }
+        
+        /* 标题样式 */
+        h1, h2, h3, h4, h5, h6 {
+            color: var(--primary-color);
+        }
+        
+        /* 欢迎界面主标题特殊样式 */
+        .welcome-content h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 50%, var(--accent-color) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 4px 8px rgba(99, 102, 241, 0.3);
+            letter-spacing: 2px;
+            margin-bottom: 1rem;
+            animation: welcomeTitleGlow 4s ease-in-out infinite alternate;
+        }
+        
+        @keyframes welcomeTitleGlow {
+            0% {
+                text-shadow: 0 4px 8px rgba(99, 102, 241, 0.3), 0 0 20px rgba(99, 102, 241, 0.2);
+                transform: scale(1);
+            }
+            100% {
+                text-shadow: 0 6px 12px rgba(99, 102, 241, 0.5), 0 0 40px rgba(139, 92, 246, 0.4);
+                transform: scale(1.02);
+            }
+        }
+        
+        /* 欢迎界面副标题样式 */
+        .welcome-subtitle {
+            font-size: 1.2rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--text-secondary) 0%, var(--primary-color) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 2px 4px rgba(99, 102, 241, 0.2);
+            letter-spacing: 0.5px;
+            margin-bottom: 1.5rem;
+            animation: subtitleFade 2s ease-in-out infinite alternate;
+        }
+        
+        /* 欢迎界面提示文字样式 */
+        .welcome-hint {
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: linear-gradient(135deg, var(--text-secondary) 0%, var(--primary-light) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 1px 2px rgba(99, 102, 241, 0.1);
+            letter-spacing: 0.3px;
+            line-height: 1.6;
+            padding: 12px 20px;
+            border-radius: 12px;
+            background-color: rgba(99, 102, 241, 0.05);
+            border: 1px solid rgba(99, 102, 241, 0.1);
+            animation: hintPulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes subtitleFade {
+            0% {
+                opacity: 0.8;
+                transform: translateY(0);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(-2px);
+            }
+        }
+        
+        @keyframes hintPulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.1);
+                transform: scale(1);
+            }
+            50% {
+                box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.05);
+                transform: scale(1.01);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.1);
+                transform: scale(1);
+            }
+        }
+        
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            section[data-testid="stSidebar"] {
+                min-width: 280px !important;
+                max-width: 280px !important;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
 
-# 业务逻辑函数
-def mock_ask_agent(prompt):
-    """
-    模拟Agent响应函数
-    在实际应用中，这里会调用真实的GraphRAG系统
-    """
-    time.sleep(1)  # 模拟网络延迟
-    
-    # 脑卒中相关的响应映射
-    responses = {
-        "你好": "您好！我是基于脑卒中医学知识图谱的智能问答助手，请问您想了解脑卒中的哪些方面？",
-        "脑卒中的主要症状": "脑卒中的主要症状包括：突发性面部歪斜、单侧肢体无力、言语不清、视力模糊等。[引用:脑卒中症状]",
-        "脑卒中的危险因素": "脑卒中的主要危险因素包括：高血压、糖尿病、高血脂、吸烟、肥胖等。[引用:危险因素]",
-        "脑卒中的急救措施": "发现脑卒中症状应立即拨打急救电话，保持患者平卧，解开衣领，保持呼吸道通畅。[引用:急救指南]",
-        "脑卒中的康复治疗": "脑卒中康复包括物理治疗、作业治疗、言语治疗等，应在医生指导下进行系统康复训练。[引用:康复方案]",
-    }
-    
-    return responses.get(
-        prompt.strip(), 
-        f"关于'{prompt}'的问题，我将在脑卒中知识图谱中为您查找相关信息。"
-    )
+# 业务逻辑
 
-def mock_get_source(source_id):
-    """
-    模拟溯源查询函数
-    在实际应用中，这里会查询知识图谱数据库
-    """
-    time.sleep(0.5)  # 模拟查询延迟
-    
-    # 脑卒中相关的溯源内容
-    sources = {
-        "脑卒中症状": """脑卒中典型症状（FAST原则）：
-- F（Face）：面部不对称，口角歪斜
-- A（Arm）：手臂无力，抬起困难  
-- S（Speech）：言语不清，表达困难
-- T（Time）：立即就医，争取黄金治疗时间
-
-其他症状可能包括：突发性头痛、眩晕、平衡障碍、视力模糊等。""",
+def get_source_content(source_id):
+    """调用溯源查询函数"""
+    try:
+        # 解析引用格式，提取实际的ID
+        if source_id.startswith("{'points':"):
+            # 提取points中的ID
+            matches = re.findall(r"\((\d+),'([0-9a-fA-F-]+)'\)", source_id)
+            if matches:
+                # 使用第一个匹配的ID，格式为 "1,community_id"
+                community_id = matches[0][1]
+                actual_id = f"1,{community_id}"
+                content = get_source(actual_id)
+                return content
+        elif source_id.startswith("'Chunks':"):
+            # 提取chunks中的ID
+            matches = re.findall(r"'([0-9a-fA-F]+)'", source_id)
+            if matches:
+                # 使用第一个匹配的ID，格式为 "2,chunk_id"
+                chunk_id = matches[0]
+                actual_id = f"2,{chunk_id}"
+                content = get_source(actual_id)
+                return content
         
-        "危险因素": """脑卒中可干预的危险因素：
-1. 高血压：最重要的危险因素
-2. 心脏病：如房颤、冠心病
-3. 糖尿病：增加卒中风险2-4倍
-4. 血脂异常：低密度脂蛋白升高
-5. 吸烟：使卒中风险增加2-4倍
-6. 肥胖和缺乏运动""",
-        
-        "急救指南": """脑卒中急救黄金时间窗：
-- 缺血性脑卒中：发病4.5小时内可进行静脉溶栓
-- 出血性脑卒中：需立即手术干预
+        # 如果无法解析，直接使用原始ID
+        content = get_source(source_id)
+        return content
+    except Exception as e:
+        return f"溯源查询出现错误：{str(e)}"
 
-急救步骤：
-1. 立即拨打120急救电话
-2. 记录发病时间
-3. 保持患者平卧位，头偏向一侧
-4. 不要随意给药或进食
-5. 准备就医所需的证件和资料""",
-        
-        "康复方案": """脑卒中康复分期：
-1. 急性期康复（发病2周内）：床上体位摆放、被动活动
-2. 恢复期康复（发病后2周-6个月）：功能训练、ADL训练
-3. 后遗症期康复（发病6个月后）：社区康复、家庭改造
-
-康复内容包括：
-- 运动功能训练
-- 言语吞咽训练  
-- 认知功能训练
-- 心理康复支持
-- 日常生活能力训练"""
-    }
+def sync_messages_to_agent(messages, session_id):
+    """同步历史消息到Agent"""
+    if not AGENT_AVAILABLE or not messages:
+        return
     
-    return sources.get(source_id, "在脑卒中知识图谱中没有检索到该语料。")
+    try:
+        config = user_config(session_id)
+        
+        # 清除当前session的所有消息
+        current_state = agent.get_state(config)
+        if current_state and current_state.values.get("messages"):
+            existing_messages = current_state.values["messages"]
+            for message in reversed(existing_messages):
+                agent.update_state(config, {"messages": [RemoveMessage(id=message.id)]})
+        
+        # 将历史消息转换为agent格式并添加
+        agent_messages = []
+        for msg in messages:
+            if msg["role"] == "user":
+                agent_messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                agent_messages.append(AIMessage(content=msg["content"]))
+        
+        if agent_messages:
+            agent.update_state(config, {"messages": agent_messages})
+            
+    except Exception as e:
+        print(f"同步消息到agent时出错: {e}")
+        # 如果同步失败，不影响正常使用，只是没有历史上下文
 
-# 会话状态管理
+# 状态管理
 def initialize_session_state():
     """初始化会话状态"""
     if 'messages' not in st.session_state:
@@ -168,200 +381,328 @@ def initialize_session_state():
         st.session_state.current_source_id = ""
     if 'current_source_content' not in st.session_state:
         st.session_state.current_source_content = "暂无溯源内容。"
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+    if 'should_show_traceability' not in st.session_state:
+        st.session_state.should_show_traceability = False
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'current_chat_id' not in st.session_state:
+        st.session_state.current_chat_id = None
 
 def handle_source_click(source_id):
-    """
-    处理溯源点击事件
-    切换到溯源查验标签页并加载对应内容
-    """
+    """处理溯源点击"""
     st.session_state.current_source_id = source_id
-    st.session_state.current_source_content = mock_get_source(source_id)
-    st.session_state.selected_tab = "溯源查验"
+    st.session_state.current_source_content = get_source_content(source_id)
+    st.session_state.should_show_traceability = True
+    st.rerun()
+
+def create_new_chat():
+    """创建新对话"""
+    # 生成新的session_id，确保完全独立的对话上下文
+    new_session_id = str(uuid.uuid4())
+    
+    # 如果agent模块可用，清除之前的对话历史
+    if AGENT_AVAILABLE:
+        try:
+            clear_session(st.session_state.session_id)
+        except Exception as e:
+            st.warning(f"清除对话历史时出现警告：{str(e)}")
+    
+    # 更新session_id为新的ID
+    st.session_state.session_id = new_session_id
+    
+    # 创建新的对话记录
+    new_chat_id = str(uuid.uuid4())
+    new_chat = {
+        'id': new_chat_id,
+        'title': '新对话',
+        'messages': [],
+        'created_at': time.time()
+    }
+    st.session_state.chat_history.append(new_chat)
+    st.session_state.current_chat_id = new_chat_id
+    st.session_state.messages = []
+    st.session_state.should_show_traceability = False
+    st.rerun()
+
+def load_chat(chat_id):
+    """加载对话"""
+    for chat in st.session_state.chat_history:
+        if chat['id'] == chat_id:
+            # 为每个对话生成独立的session_id，确保上下文隔离
+            if 'session_id' not in chat:
+                chat['session_id'] = str(uuid.uuid4())
+            
+            st.session_state.current_chat_id = chat_id
+            st.session_state.session_id = chat['session_id']
+            st.session_state.messages = chat['messages']
+            st.session_state.should_show_traceability = False
+            
+            # 同步历史消息到agent的对话历史中
+            if AGENT_AVAILABLE and chat['messages']:
+                try:
+                    sync_messages_to_agent(chat['messages'], chat['session_id'])
+                except Exception as e:
+                    st.warning(f"同步对话历史时出现警告：{str(e)}")
+            
+            st.rerun()
+            break
+
+def save_current_chat():
+    """保存对话"""
+    if st.session_state.current_chat_id and st.session_state.messages:
+        for chat in st.session_state.chat_history:
+            if chat['id'] == st.session_state.current_chat_id:
+                chat['messages'] = st.session_state.messages
+                chat['session_id'] = st.session_state.session_id  # 保存session_id
+                # 更新标题为第一条用户消息
+                if st.session_state.messages:
+                    first_user_msg = next((msg for msg in st.session_state.messages if msg['role'] == 'user'), None)
+                    if first_user_msg:
+                        chat['title'] = first_user_msg['content'][:30] + '...' if len(first_user_msg['content']) > 30 else first_user_msg['content']
+                break
+
+def delete_chat(chat_id):
+    """删除对话"""
+    st.session_state.chat_history = [chat for chat in st.session_state.chat_history if chat['id'] != chat_id]
+    if st.session_state.current_chat_id == chat_id:
+        st.session_state.current_chat_id = None
+        st.session_state.messages = []
     st.rerun()
 
 # 界面组件
-def render_header():
-    """渲染页面头部"""
-    st.markdown("<h3 style='text-align: center;'>脑卒中智能问答系统</h3>", unsafe_allow_html=True)
+def render_sidebar():
+    """渲染侧边栏"""
+    with st.sidebar:
+        # 侧边栏标题
+        st.markdown('<div class="sidebar-title">GraphRAG</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sidebar-subtitle">知识图谱智能问答</div>', unsafe_allow_html=True)
+        st.markdown("---")
+        
+        # 新建对话按钮
+        if st.button("新建对话", use_container_width=True, type="primary"):
+            create_new_chat()
+        
+        st.markdown("---")
+        
+        # 历史对话列表
+        st.subheader("历史对话")
+        
+        if st.session_state.chat_history:
+            for chat in reversed(st.session_state.chat_history):
+                is_active = chat['id'] == st.session_state.current_chat_id
+                
+                # 时间格式化
+                time_str = datetime.datetime.fromtimestamp(chat['created_at']).strftime("%m-%d %H:%M")
+                message_count = len(chat.get('messages', []))
+                
+                # 创建列布局
+                col1, col2 = st.columns([4, 1])
+                
+                with col1:
+                    # 显示对话标题和基本信息
+                    display_title = f"{chat['title'][:20]}{'...' if len(chat['title']) > 20 else ''}"
+                    
+                    if st.button(
+                        display_title,
+                        key=f"load_{chat['id']}",
+                        use_container_width=True,
+                        type="primary" if is_active else "secondary"
+                    ):
+                        load_chat(chat['id'])
+                
+                with col2:
+                    if st.button("×", key=f"delete_{chat['id']}", help="删除对话"):
+                        delete_chat(chat['id'])
+                
+                # 显示额外信息
+                st.caption(f"{time_str} · {message_count}条消息")
+                st.markdown("---")
+        else:
+            st.info("暂无历史对话")
+            st.markdown("---")
+        
+        # 使用说明
+        with st.expander("使用说明", expanded=True):
+            st.write("""
+            **问答类型：**
+            - 全局性查询：整体情况
+            - 局部性查询：具体实体  
+            - 普通咨询：系统介绍
+            
+            **溯源功能：**
+            点击AI回复中的'查验引用'查看来源
+            """)
 
-def render_system_instructions():
-    """渲染系统使用说明"""
-    with st.expander("系统使用说明与示例 (点击展开/折叠)"):
+def render_main_content():
+    """渲染主内容"""
+    # 检查是否需要显示溯源查验界面
+    if st.session_state.should_show_traceability:
+        render_traceability_tab()
+    else:
+        render_chat_interface()
+
+def render_chat_interface():
+    """渲染聊天界面"""
+    # 显示对话历史
+    if st.session_state.messages:
+        # 创建聊天容器
+        for i, message in enumerate(st.session_state.messages):
+            if message["role"] == "user":
+                st.markdown(f'<div class="message-user">{message["content"]}</div>', unsafe_allow_html=True)
+            else:
+                render_agent_message(message, i)
+    else:
+        # 简化的欢迎界面
         st.markdown("""
-        **系统介绍**
-        本GraphRAG系统基于专业的脑卒中医学知识图谱构建，能够准确回答关于脑卒中预防、症状、诊断、治疗和康复等方面的问题。
-        
-        **问答类型示例：**
-        1. **全局性查询**（使用社区摘要回答）：
-           - `脑卒中的主要危险因素有哪些？`
-           - `脑卒中患者康复治疗的基本原则是什么？`
-           
-        2. **局部性查询**（检索相关材料回答）：
-           - `脑卒中急性期的溶栓治疗有什么禁忌症？`
-           - `脑卒中后言语障碍如何进行康复训练？`
-           
-        3. **普通咨询**（无需检索）：
-           - `你好，请介绍一下这个系统`
-           
-        **溯源查验功能**
-        回答中引用的知识图谱内容会标注来源，点击可以查看详细的医学依据和参考资料。
-        
-        **重要提示**
-        本系统提供的医学信息仅供参考，不能替代专业医生的诊断和治疗建议。
-        """)
-
-def render_chat_history():
-    """渲染聊天记录"""
-    with st.container(height=400, border=True):
-        if len(st.session_state.messages) == 0:
-            render_welcome_message()
+        <div class="welcome-container">
+            <div class="welcome-content">
+                <h1 style="text-align: center;">欢迎使用 GraphRAG</h1>
+                <p class="welcome-subtitle" style="text-align: center;">基于知识图谱的智能问答系统</p>
+                <div style="text-align: center; margin: 2rem 0;">
+                    <p class="welcome-hint">在下方输入框中输入您的问题，开始与知识图谱对话</p>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # 输入区域
+    user_input = st.chat_input("输入您的问题，按回车发送...", key=f"input_{st.session_state.input_key}")
+    
+    if user_input:
+        # 如果没有当前对话，创建新对话
+        if not st.session_state.current_chat_id:
+            create_new_chat()
         else:
-            render_message_history()
-
-def render_welcome_message():
-    """渲染欢迎消息"""
-    st.markdown("""
-    <div class="welcome-box">
-        <h3>欢迎使用脑卒中智能问答系统</h3>
-        本系统基于专业的脑卒中医学知识图谱，为您提供准确的医学知识解答。
+            save_current_chat()
         
-            尝试提问:
-            1. 脑卒中的主要症状有哪些？
-            2. 脑卒中患者的康复过程是怎样的？
-            3. 如何预防脑卒中？
-    </div>
-    """, unsafe_allow_html=True)
+        # 添加用户消息
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.input_key += 1
+        
+        # 获取AI响应
+        with st.spinner("助手正在查询知识图谱..."):
+            try:
+                response = ask_agent_with_source(user_input, st.session_state.session_id)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                
+                # 保存当前对话
+                save_current_chat()
+                
+                # 重新运行以显示新消息
+                st.rerun()
+            except Exception as e:
+                st.error(f"处理请求时出现错误：{str(e)}")
 
-def render_message_history():
-    """渲染消息历史记录"""
-    for i, msg in enumerate(st.session_state.messages):
-        if msg['role'] == 'user':
-            st.markdown(f'<div class="user-msg"><b>您</b>: {msg["content"]}</div>', unsafe_allow_html=True)
-        else:
-            render_agent_message(msg, i)
+def render_traceability_tab():
+    """渲染溯源界面"""
+    # 溯源查验界面
+    st.title("溯源查验")
+    st.markdown("查看知识图谱中的原始数据来源")
+    
+    # 返回按钮
+    if st.button("返回对话", type="primary"):
+        st.session_state.should_show_traceability = False
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # 溯源信息
+    if st.session_state.current_source_id:
+        st.success("溯源信息已加载")
+        
+        # 溯源ID
+        st.subheader("溯源ID")
+        st.code(st.session_state.current_source_id, language="text")
+        
+        # 溯源内容
+        st.subheader("溯源内容")
+        st.text_area(
+            "溯源内容", 
+            value=st.session_state.current_source_content, 
+            height=400,
+            disabled=True,
+            label_visibility="collapsed"
+        )
+    else:
+        st.info("暂无溯源信息")
+        st.markdown("点击AI回复中的'查验引用'按钮查看知识图谱来源信息")
 
 def render_agent_message(msg, index):
-    """渲染助手消息，处理溯源引用"""
+    """渲染AI消息"""
     display_content = msg["content"]
-    matches = list(re.finditer(r'\[引用:(.*?)]', display_content))
+    
+    # 定义各种标识符的正则表达式模式
+    patterns = [
+        # 完整的data结构
+        (r"\{'data':\s*\{[^}]*\}\s*\{[^}]*\}\}", "data_structure"),
+        # points格式
+        (r"\{'points':\[(.*?)\]\}", "points"),
+        # Chunks格式
+        (r"'Chunks':\[(.*?)\]", "chunks"),
+        # Entities格式
+        (r"'Entities':\[(.*?)\]", "entities"),
+        # Reports格式
+        (r"'Reports':\[(.*?)\]", "reports"),
+        # Relationships格式
+        (r"'Relationships':\[(.*?)\]", "relationships"),
+        # 单独的chunk ID
+        (r"'([0-9a-fA-F]{40})'", "chunk_id"),
+        # 数字ID
+        (r"\b(\d+)\b", "number_id")
+    ]
+    
+    # 收集所有匹配项
+    all_matches = []
+    for pattern, match_type in patterns:
+        matches = list(re.finditer(pattern, display_content))
+        for match in matches:
+            all_matches.append((match.start(), match.end(), match.group(0), match_type))
+    
+    # 按位置排序
+    all_matches.sort(key=lambda x: x[0])
     
     # 分割文本并处理引用
     last_end = 0
     parts = []
-    for match in matches:
-        parts.append(display_content[last_end:match.start()])
-        source_id = match.group(1)
-        parts.append(f'<span style="display:inline-block;">')
-        parts.append(f'__ST_BUTTON_PLACEHOLDER_{index}_{source_id}__')
-        parts.append(f'</span>')
-        last_end = match.end()
+    for start, end, match_text, match_type in all_matches:
+        # 添加前面的文本
+        parts.append(display_content[last_end:start])
+        
+        # 根据类型添加不同的样式
+        if match_type in ["data_structure", "points", "chunks", "entities", "reports", "relationships", "chunk_id", "number_id"]:
+            # 所有标识符都使用蓝色加粗样式
+            parts.append(f'<span class="identifier-highlight">{match_text}</span>')
+        else:
+            # 其他情况保持加粗
+            parts.append(f'**{match_text}**')
+        
+        last_end = end
+    
+    # 添加最后一部分文本
     parts.append(display_content[last_end:])
     
     # 渲染消息内容
     formatted_content = "".join(parts)
-    st.markdown(f'<div class="agent-msg"><b>助手</b>: {formatted_content}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="message-ai">{formatted_content}</div>', unsafe_allow_html=True)
     
-    # 渲染溯源按钮
-    for match in matches:
-        source_id = match.group(1)
-        st.button(f"查验 '{source_id}'", key=f"source_btn_{index}_{source_id}",
-                  on_click=handle_source_click, args=(source_id,))
-
-def render_input_area():
-    """渲染输入区域"""
-    st.markdown('<div style="margin-top: 10px; display: flex; gap: 10px;">', unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([6, 2, 2])
-    
-    with col1:
-        user_input = st.text_input(
-            "输入您的问题...",
-            key=f"input_box_{st.session_state.input_key}",
-            label_visibility="collapsed",
-            placeholder="例如：脑卒中患者如何进行康复训练？"
-        )
-    
-    with col2:
-        submit = st.button("发送", type="primary", use_container_width=True)
-    
-    with col3:
-        clear = st.button("清空对话", use_container_width=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    return user_input, submit, clear
-
-def render_traceability_tab():
-    """渲染溯源查验标签页"""
-    st.markdown("<h4><b>溯源查验</b></h4>", unsafe_allow_html=True)
-    st.markdown("查看的知识图谱来源：")
-    
-    # 显示溯源ID
-    st.text_input(
-        "来源ID", 
-        value=st.session_state.current_source_id, 
-        key="source_id_display", 
-        disabled=True, 
-        label_visibility="collapsed"
-    )
-    
-    # 显示溯源内容
-    st.markdown(
-        f'<div style="width:100%;height:300px;overflow-y:auto;border:1px solid #ddd;padding:10px;margin-top:10px;">'
-        f'<p style="white-space: pre-wrap;">{st.session_state.current_source_content}</p>'
-        f'</div>', 
-        unsafe_allow_html=True
-    )
-
-def render_footer():
-    """渲染页脚"""
-    st.markdown(
-        "<div class='footer'>脑卒中智能问答系统 · 基于专业医学知识图谱构建 · 医学信息仅供参考</div>", 
-        unsafe_allow_html=True
-    )
+    # 为溯源相关的引用添加按钮
+    traceability_matches = [m for m in all_matches if m[3] in ["points", "chunks", "data_structure"]]
+    for i, (start, end, match_text, match_type) in enumerate(traceability_matches):
+        if st.button(f"查验引用 {i+1}", key=f"source_{index}_{i}"):
+            handle_source_click(match_text)
 
 if __name__ == "__main__":
-    # 初始化配置
-    setup_page_config()
-    setup_custom_styles()
-    initialize_session_state()
-    
-    # 渲染界面组件
-    render_header()
-    
-    # 创建标签页
-    tab_dialogue, tab_traceability = st.tabs(["知识图谱对话", "溯源查验"])
-    
-    # 对话标签页
-    with tab_dialogue:
-        render_system_instructions()
-        st.markdown("<h4><b>对话记录</b></h4>", unsafe_allow_html=True)
-        render_chat_history()
+    try:
+        # 初始化配置
+        setup_page_config()
+        setup_custom_styles()
+        initialize_session_state()
         
-        # 输入区域和处理逻辑
-        user_input, submit, clear = render_input_area()
+        # 渲染界面
+        render_sidebar()
+        render_main_content()
         
-        # 处理用户输入
-        if submit and user_input.strip():
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            st.session_state.input_key += 1
-            
-            with st.spinner("助手正在查询知识图谱..."):
-                response = mock_ask_agent(user_input)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            st.rerun()
-        
-        # 处理清空对话
-        if clear:
-            st.session_state.messages = []
-            st.session_state.input_key += 1
-            st.session_state.current_source_id = ""
-            st.session_state.current_source_content = "暂无溯源内容。"
-            st.rerun()
-    
-    # 溯源查验标签页
-    with tab_traceability:
-        render_traceability_tab()
-    
-    # 页脚
-    render_footer()
+    except Exception as e:
+        st.error(f"应用运行错误: {str(e)}")
