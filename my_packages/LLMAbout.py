@@ -1,4 +1,6 @@
+import os
 import time
+from dotenv import load_dotenv
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_deepseek import ChatDeepSeek
@@ -9,6 +11,10 @@ from langchain.prompts import (
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate
 )
+
+# 加载环境变量
+load_dotenv(".env")
+DEEPSEEK_API_KEY = os.environ["DEEPSEEK_API_KEY"]
 
 # 指定模型名称
 INSTRUCT_MODEL = 'deepseek-chat'
@@ -105,6 +111,120 @@ def decide_entity_merge(candidates):
                     merged_entities.append(el.entities)
     
     return merged_entities
+    
+# 重写实体节点描述
+def rewrite_entity_descriptions(graph, min_length = 500):        
+    # 获取需要重写的实体节点
+    query = """
+    MATCH (n:__Entity__)
+    WHERE n.description IS NOT NULL AND size(n.description) > $min_length
+    RETURN id(n) as node_id, n.description as description
+    """
+    
+    entities = graph.query(query, params={"min_length": min_length})
+    
+    # 构建提示模板链
+    prompt = ChatPromptTemplate.from_template(
+        """
+        请重写以下实体描述，合并其中的重复信息，使其更加简洁、连贯且信息完整。保持专业性和准确性。
+
+        原始描述：
+        {description}
+
+        重写要求：
+        1. 合并重复部分
+        2. 保留所有重要信息
+        3. 使描述更加流畅自然
+        4. 不要添加新的信息
+        5. 请直接输出重写后的描述
+
+        重写后的描述：
+        """
+    )
+    
+    llm  = ChatDeepSeek(
+        model=INSTRUCT_MODEL,
+    )
+
+    chain = prompt | llm
+    
+    # 准备批量处理数据
+    inputs = [{"description": entity["description"]} for entity in entities]
+    
+    # 批量并行处理
+    if inputs:
+        responses = chain.batch(inputs, config=RunnableConfig(max_concurrency=12))
+        
+        # 批量更新数据库
+        for entity, response in zip(entities, responses):
+            new_description = response.content.strip()
+            
+            update_query = """
+            MATCH (n:__Entity__)
+            WHERE id(n) = $node_id
+            SET n.description = $new_description
+            """
+            
+            _ = graph.query(update_query, params={
+                "node_id": entity["node_id"], 
+                "new_description": new_description
+            })
+
+# 重写关系描述
+def rewrite_relationship_descriptions(graph, min_length = 60):        
+    # 获取需要重写的关系
+    query = """
+    MATCH (:__Entity__)-[r]->(:__Entity__)
+    WHERE r.description IS NOT NULL AND size(r.description) > $min_length
+    RETURN id(r) as rel_id, r.description as description
+    """
+    
+    relationships = graph.query(query, params={"min_length": min_length})
+    
+    # 构建提示模板链
+    prompt = ChatPromptTemplate.from_template(
+        """请重写以下关系描述，合并其中的重复信息，使其更加简洁、连贯且信息完整。保持专业性和准确性。
+
+        原始描述：
+        {description}
+
+        重写要求：
+        1. 合并重复部分
+        2. 保留所有重要信息
+        3. 使描述更加流畅自然
+        4. 不要添加新的信息
+        5. 请直接输出重写后的描述
+
+        重写后的描述："""
+    )
+    
+    llm  = ChatDeepSeek(
+        model=INSTRUCT_MODEL,
+    )
+    
+    chain = prompt | llm
+    
+    # 准备批量处理数据
+    inputs = [{"description": rel["description"]} for rel in relationships]
+    
+    # 批量并行处理
+    if inputs:
+        responses = chain.batch(inputs, config=RunnableConfig(max_concurrency=12))
+        
+        # 批量更新数据库
+        for rel, response in zip(relationships, responses):
+            new_description = response.content.strip()
+            
+            update_query = """
+            MATCH (:__Entity__)-[r]->(:__Entity__)
+            WHERE id(r) = $rel_id
+            SET r.description = $new_description
+            """
+
+            _ = graph.query(update_query, params={
+                "rel_id": rel["rel_id"],
+                "new_description": new_description
+            })
 
 # 使用LLM进行社区摘要
 # 按优先级准备社区信息，确保不超过token限制
@@ -146,6 +266,14 @@ def prepare_prioritized_string(info, max_tokens=120000):
             current_length += len(rel_desc)
         else:
             break  # 达到token限制，停止添加
+    
+    # 添加剩余节点
+    for node_desc in node_desc_map.values():
+        if current_length + len(node_desc) < max_length:
+            prioritized_nodes.append(node_desc)
+            current_length += len(node_desc)
+        else:
+            break  # 达到token限制，停止添加
 
     nodes_str = "Nodes are:\n"
     nodes_str += "\n".join(prioritized_nodes)
@@ -160,48 +288,55 @@ def community_abstract(graph):
     # 检索社区所包含的结点与边的信息
     community_info = graph.query(
         """
-        MATCH (c:`__Community__`)<-[:IN_COMMUNITY*]-(e:__Entity__)
+        MATCH (c:`__Community__`)<-[:IN_COMMUNITY]-(e:__Entity__)
         WHERE c.level IN [0]
         WITH c, collect(e) AS nodes
         WHERE size(nodes) > 3
-        CALL apoc.path.subgraphAll(nodes[0], {
-            whitelistNodes: nodes
-        })
-        YIELD nodes as subgraph_nodes, relationships as subgraph_rels
+        // 获取社区内所有实体节点之间的关系
+        WITH c, nodes
+        UNWIND nodes AS n
+        OPTIONAL MATCH (n)-[r]-(m)
+        WHERE type(r) <> 'IN_COMMUNITY' AND m IN nodes
         // 计算节点度中心性（显著度）
-        WITH c, subgraph_nodes, subgraph_rels,
-             [n IN subgraph_nodes | {
-                 id: n.id, 
-                 description: n.description, 
-                 type: [el in labels(n) WHERE el <> '__Entity__'],
-                 degree: size([(n)--() | 1])  // 计算节点的度
-             }] AS nodes_with_degree
+        WITH c, nodes, collect(DISTINCT r) AS rels
+        WITH c, rels,
+                [n IN nodes | {
+                    id: n.id, 
+                    description: n.description, 
+                    type: [el in labels(n) WHERE el <> '__Entity__'],
+                    degree: size([(n)--() | 1])  // 计算节点的度
+                }] AS nodes_with_degree
         // 计算关系的优先级（源节点度 + 目标节点度）
-        WITH c, nodes_with_degree, subgraph_rels,
-             [r IN subgraph_rels | {
-                 start: startNode(r).id, 
-                 end: endNode(r).id,
-                 type: type(r), 
-                 description: r.description,
-                 priority: (
-                     [n IN nodes_with_degree WHERE n.id = startNode(r).id | n.degree][0] +
-                     [n IN nodes_with_degree WHERE n.id = endNode(r).id | n.degree][0]
-                 )
-             }] AS rels_with_priority
-        // 按优先级降序排序关系
+        WITH c, nodes_with_degree,
+                [r IN rels | {
+                    start: startNode(r).id, 
+                    end: endNode(r).id,
+                    type: type(r), 
+                    description: r.description,
+                    priority: (
+                        [n IN nodes_with_degree WHERE n.id = startNode(r).id | n.degree][0] +
+                        [n IN nodes_with_degree WHERE n.id = endNode(r).id | n.degree][0]
+                    )
+                }] AS rels_with_priority
+        // 按节点度降序排序节点
         WITH c, nodes_with_degree, rels_with_priority
-        UNWIND rels_with_priority AS r
-        WITH c, nodes_with_degree, r
+        UNWIND nodes_with_degree AS n
+        WITH c, rels_with_priority, n
+        ORDER BY n.degree DESC
+        // 按优先级降序排序关系
+        WITH c, collect(n) AS sorted_nodes, rels_with_priority
+        UNWIND rels_with_priority AS r  // 这样会遗漏不存在关系的社区，但不方便修改，因此暂时保留
+        WITH c, sorted_nodes, r
         ORDER BY r.priority DESC
-        WITH c, nodes_with_degree, collect(r) AS sorted_rels
+        WITH c, sorted_nodes, collect(r) AS sorted_rels
         RETURN c.id AS communityId,
-               nodes_with_degree AS nodes,
+               sorted_nodes AS nodes,
                sorted_rels AS rels
         """
     )
     
     community_template = """
-    基于所提供的属于同一图社区的节点和关系， 
+    基于所提供的属于同一图社区的节点和关系，
     生成所提供图社区信息的自然语言摘要： 
     {community_info} 
     摘要：
@@ -218,7 +353,6 @@ def community_abstract(graph):
     
     llm  = ChatDeepSeek(
         model=INSTRUCT_MODEL,
-        temperature=1.0
     )
 
     community_chain = community_prompt | llm | StrOutputParser()
