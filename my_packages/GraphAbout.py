@@ -433,18 +433,32 @@ def clean_isolated_entities(graph, largest_component_id, wcc_result):
     if len(isolated_nodes) == 0:
         return
         
-    # 构建Cypher查询来删除孤立节点及其关系
-    query = """
+    # 删除孤立节点及其关系
+    query1 = """
     MATCH (e:__Entity__)
     WHERE id(e) IN $node_ids
     DETACH DELETE e
     """
-    
-    # 执行删除操作
     _ = graph.query(
-        query,
+        query1,
         params={"node_ids": isolated_nodes["nodeId"].tolist()}
     )
+    
+    # 删除没有连接到任何实体节点的块节点
+    query2 = """
+    MATCH (c:__Chunk__)
+    WHERE NOT (c)-[]->(:__Entity__)
+    DETACH DELETE c
+    """
+    _ = graph.query(query2)
+    
+    # 删除没有连接到任何块节点的文件节点
+    query3 = """
+    MATCH (d:__Document__)
+    WHERE NOT (d)<-[]-(:__Chunk__)
+    DETACH DELETE d
+    """
+    _ = graph.query(query3)
 
 # 清除旧的社区信息
 def clean_communities(graph):

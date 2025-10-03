@@ -85,7 +85,7 @@ if __name__ == '__main__':
     -步骤- 
     1.识别所有实体。对于每个已识别的实体，提取以下信息： 
     -entity_name：实体名称，大写 
-    -entity_type：以下类型之一：[{entity_types}]，当不能归类为上述列表中的类型时，归类为“未知”
+    -entity_type：以下类型之一：[{entity_types}]，当不能归类为上述列表中的类型时，归类为“其它”
     -entity_description：对实体属性和活动的综合描述 
     将每个实体格式化为("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>
     2.从步骤1中识别的实体中，识别彼此*明显相关*的所有实体配对(source_entity, target_entity)。 
@@ -98,6 +98,8 @@ if __name__ == '__main__':
     将每个关系格式化为("relationship"{tuple_delimiter}<source_entity>{tuple_delimiter}<target_entity>{tuple_delimiter}<relationship_type>{tuple_delimiter}<relationship_description>{tuple_delimiter}<relationship_strength>) 
     3.实体和关系的所有属性用中文输出，步骤1和2中识别的所有实体和关系输出为一个列表。使用**{record_delimiter}**作为列表分隔符。 
     4.完成后，输出{completion_delimiter}
+    -注意-
+    严禁使用列表中不存在的实体类型和关系类型。如果遇到不能归类的类型，请将其归类为“其他”。
 
     ###################### 
     -示例- 
