@@ -18,7 +18,6 @@ NEO4J_URI = os.environ.get("NEO4J_URI")
 NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 
-
 # LLM配置
 llm = ChatDeepSeek(
     model='deepseek-chat'
@@ -32,9 +31,8 @@ embeddings = HuggingFaceEmbeddings(
 )
 
 # 创建Neo4j数据库连接
-driver = Neo4jGraph.driver()
+graph = Neo4jGraph()
 
-@traceable
 def local_retriever(query: str) -> str:
     """局部检索器：检索知识图谱中的具体信息"""
     # 检索参数配置
@@ -122,7 +120,6 @@ def local_retriever(query: str) -> str:
     # 返回检索结果
     return report_data
 
-@traceable
 def global_retriever(query: str, level: int = 0) -> str:
     """全局检索器：通过社区摘要检索全局信息"""
     # 相关性评估提示词
@@ -142,7 +139,7 @@ def global_retriever(query: str, level: int = 0) -> str:
 
     ---回复格式--- 
     仅返回一个JSON对象，包含分数和简要理由：
-    {"score": 整数分数, "reason": "一句话的评分理由"}
+    {{"score": 整数分数, "reason": "一句话的评分理由"}}
     """
 
     # 构建提示词
@@ -198,6 +195,7 @@ def global_retriever(query: str, level: int = 0) -> str:
                 return {
                     "communityId": community_id,
                     "summary": summary,
+                    "score": score
                 }
             else:
                 return None
@@ -210,7 +208,7 @@ def global_retriever(query: str, level: int = 0) -> str:
     # 执行并行处理
     with ThreadPoolExecutor(max_workers=12) as executor:
         futures = {
-            executor.submit(process_community, community): 
+            executor.submit(process_community, community["output"]): 
                 community for community in community_data
         }
         
@@ -235,9 +233,9 @@ def get_source(source_id):
     
     temp = len(source_id.split("-"))
     if temp == 2:
-        result = driver.query(CommunityCypher, params={"id": source_id})
+        result = graph.query(CommunityCypher, params={"id": source_id})
     else:
-        result = driver.query(ChunkCypher, params={"id": source_id})
+        result = graph.query(ChunkCypher, params={"id": source_id})
     
     if result:
         if temp == 2:  # Community

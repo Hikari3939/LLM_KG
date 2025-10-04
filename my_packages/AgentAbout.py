@@ -7,11 +7,11 @@ from langgraph.graph import MessagesState
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.prompts import PromptTemplate
 from langgraph.graph import END, StateGraph, START
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.memory import InMemorySaver
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, RemoveMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 from my_packages.QueryAbout import local_retriever, global_retriever
 
@@ -30,24 +30,22 @@ response_type: str = "多个段落"
 # 创建局部检索器工具
 @tool
 def local_retriever_tool(query: str) -> str:
-    """检索知识图谱中的具体信息，适用于查找特定实体、关系、属性等详细信息。
-    当用户询问具体的人物、事件、概念的具体细节、定义、分类、特征、属性、关系等时使用此工具。
-    例如：某个疾病的具体分类、某个概念的定义、某个实体的属性等。"""
+    """检索以脑卒中为核心，涵盖和脑卒中相关的药物、病症等知识图谱中的具体信息，
+    适用于查找具体的实体、关系、属性等。"""
     return local_retriever(query)
 
 # 创建全局检索器工具
 @tool
 def global_retriever_tool(query: str) -> str:
-    """回答有关知识图谱的全局性、综合性问题，通过分析多个社区摘要来提供全面答案。
-    适用于需要综合分析、总结性回答、趋势分析、比较分析、整体概述等宏观问题。
-    例如：整体趋势分析、多个概念的比较、知识图谱的全局概况等。"""
+    """回答有关以脑卒中为核心，涵盖和脑卒中相关的药物、病症等知识图谱的全局性、综合性问题，
+    通过分析多个社区摘要来提供全面答案。适用于综合分析、整体概述等宏观问题。"""
     return global_retriever(query)
 
 tools = [local_retriever_tool, global_retriever_tool]
 
 
 ### Nodes
-def agent(state):
+def query_or_response(state):
     """
     Invokes the agent model to generate a response based on the current state. Given
     the question, it will decide to retrieve using the retriever tool, or simply end.
@@ -81,7 +79,7 @@ def rewrite(state):
                 ## 重构原则
                 1. **明确实体和关系**：识别问题中涉及的具体实体、概念、关系
                 2. **具体化描述**：将抽象概念转化为具体的、可检索的描述
-                3. **保持原意**：确保重构后的问题保持用户的原始意图
+                3. **保持原意**：确保重构后的问题严格保持用户的原始意图
                 4. **严禁发散**：若因关键信息缺失等原因无法进行重构，请直接返回原始问题，不要基于常识或猜测添加任何内容
 
                 ## 重构策略
@@ -157,7 +155,7 @@ def generate(state):
                 ---分析报告--- 
                 请注意，下面提供的分析报告按**重要性降序排列**。
                 
-                {report_data}
+                {context}
                 
 
                 用户的问题是：
@@ -210,16 +208,16 @@ def reduce(state):
         - {response_type}
         - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
         - 输出摘要引用的格式：
-        {{'points': [逗号分隔的摘要ID列表]}}
+        {{'communityIds': [逗号分隔的摘要ID列表]}}
         例如：
-        {{'points':['0-0','0-1']}}
-        {{'points':['0-0', '0-1', '0-3']}}
+        {{'communityIds':['0-0','0-1']}}
+        {{'communityIds':['0-0', '0-1', '0-3']}}
         其中'0-0'、'0-1'、'0-3'是摘要来源的communityId。
         - 摘要引用的说明放在引用之后，不要单独作为一段。
         例如： 
         #############################
-        "X是Y公司的所有者，他也是X公司的首席执行官{{'points':['0-0']}}，
-        受到许多不法行为指控{{'points':['0-0', '0-1', '0-3']}}。"  
+        "X是Y公司的所有者，他也是X公司的首席执行官{{'communityIds':['0-0']}}，
+        受到许多不法行为指控{{'communityIds':['0-0', '0-1', '0-3']}}。"  
         #############################
         """
     reduce_prompt = ChatPromptTemplate.from_messages(
@@ -268,7 +266,7 @@ def grade_documents(state) -> Literal["generate", "rewrite", "reduce"]:
     retrieve_message = messages[-2]
     
     # 如果是全局查询，直接转到reduce结点。
-    if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"]== 'global_retriever':
+    if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"]== 'global_retriever_tool':
         print("---GLOBAL RETRIEVE---")
         return "reduce"
 
@@ -312,8 +310,8 @@ def create_workflow():
     workflow = StateGraph(MessagesState)
 
     # 定义节点
-    # agent
-    workflow.add_node("agent", agent)
+    # query_or_response
+    workflow.add_node("query_or_response", query_or_response)
     # retrieval
     retrieve = ToolNode(tools)
     workflow.add_node("retrieve", retrieve)
@@ -325,11 +323,11 @@ def create_workflow():
     workflow.add_node("reduce", reduce)
 
     # 定义边
-    # Start from the "agent" node
-    workflow.add_edge(START, "agent")
+    # Start from the "query_or_response" node
+    workflow.add_edge(START, "query_or_response")
     # Decide whether to retrieve
     workflow.add_conditional_edges(
-        "agent",
+        "query_or_response",
         # Assess agent decision
         tools_condition,          # tools_condition()的输出是"tools"或END
         {
@@ -343,8 +341,8 @@ def create_workflow():
         # Assess agent decision
         grade_documents,
     )
-    # 如果是重构问题，转到agent结点重新开始。
-    workflow.add_edge("rewrite", "agent")
+    # 如果是重构问题，转到query_or_response结点重新开始。
+    workflow.add_edge("rewrite", "query_or_response")
     # 如果是局部查询或全局查询生成，直接结束
     workflow.add_edge("generate", END)
     workflow.add_edge("reduce", END)
@@ -353,51 +351,28 @@ def create_workflow():
 
 
 ### Run
-def create_agent(memory: MemorySaver):
+def create_agent(memory: InMemorySaver):
     '''创建agent实例'''
     agent = create_workflow().compile(checkpointer=memory)
     return agent
 
-def user_config(session_id=3939, recursion_limit=5):
+def user_config(session_id='3939', recursion_limit=3):
     """创建用户的session配置，以session_id作为thread_id"""
     config = {"configurable": {"thread_id": session_id, "recursion_limit": recursion_limit}}
     return config
 
-def ask_agent(query, agent, config=user_config()):
+def ask_agent(query, agent, config):
     '''向agent发送消息'''
     inputs = {"messages": [("user", query)]}
     for output in agent.stream(inputs, config=config):
         for key, value in output.items():
-            pprint.pprint(f"Output from node '{key}':")
-            pprint.pprint("---")
+            print(f"---Output from node '{key}'---")
             pprint.pprint(value, indent=2, width=80, depth=None)
-        pprint.pprint("\n---\n")
+        print("")
 
-def get_answer(memory: MemorySaver, config):
+def get_answer(memory: InMemorySaver, config):
     '''获取agent的回答'''
-    chat_history = memory.get(config)["channel_values"]["messages"]
+    result = memory.get(config)
+    chat_history = result["channel_values"]["messages"]
     answer = chat_history[-1].content
     return answer
-
-def clear_session(session_id):
-    '''清除对话历史'''
-    config = user_config(session_id)
-    try:
-        messages = agent.get_state(config).values["messages"]
-        # 要从后往前倒过来删，否则会抛出异常。
-        i=len(messages)
-        # LangGraph现在还不支持删除整个对话，删除至保留第1轮对话。
-        for message in reversed(messages):
-            # 如果倒数第3条消息是ToolMessage，保留前面4条信息，它是一轮完整的对话。
-            if i==4 and isinstance(messages[2],ToolMessage):
-                break
-            agent.update_state(config, {"messages": RemoveMessage(id=message.id)})
-            i = i-1
-            # 保留第1轮对话。
-            if i==2:
-                break
-        messages = agent.get_state(config).values["messages"]
-        return format(messages)
-    except Exception as e:
-            print(e)
-            return str(e)
