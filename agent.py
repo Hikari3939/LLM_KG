@@ -1,104 +1,294 @@
-from my_packages.QueryAbout import llm, response_type, NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
-from langchain_core.prompts import PromptTemplate
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, RemoveMessage
-from langgraph.graph import END, StateGraph, START
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.checkpoint.memory import MemorySaver
-from typing import Annotated, Literal, Sequence, TypedDict, Dict, Any
+import os
 import pprint
 import pandas as pd
-import re
-from neo4j import GraphDatabase, Result
-
-# 使用QueryAbout中已有的检索器和提示词
-from my_packages.QueryAbout import local_retriever, global_retriever, response_type
+from dotenv import load_dotenv
 from langchain_core.tools import tool
+from typing import Literal, Dict, Any
+from neo4j import GraphDatabase, Result
+from langgraph.graph import MessagesState
+from langchain_deepseek import ChatDeepSeek
+from langchain_core.prompts import PromptTemplate
+from langgraph.graph import END, StateGraph, START
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, RemoveMessage
 
-# 溯源查验相关配置
-recursion_limit = 5
+from my_packages.AgentTool import local_retriever, global_retriever
+
+
+# 环境变量配置
+load_dotenv(".env")
+
+NEO4J_URI = os.environ.get("NEO4J_URI")
+NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
+
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+LANGCHAIN_API_KEY = os.environ.get("LANGCHAIN_API_KEY")
+
+# LLM配置
+llm = ChatDeepSeek(
+    model='deepseek-chat'
+)
+
+# LLM响应类型配置
+response_type: str = "多个段落"
 
 # 创建Neo4j数据库连接
-driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
+driver = GraphDatabase.driver()
 
-# 执行Cypher查询
-def db_query(cypher: str, params: Dict[str, Any] = {}) -> pd.DataFrame:
-    """执行Cypher语句并返回DataFrame"""
-    return driver.execute_query(
-        cypher, parameters_=params, result_transformer_=Result.to_df
-    )
 
+### Tools
 # 创建局部检索器工具
 @tool
 def local_retriever_tool(query: str) -> str:
-    """检索知识图谱中的具体信息，适用于查找特定实体、关系、属性等详细信息。当用户询问具体的人物、事件、概念的具体细节、定义、分类、特征、属性、关系等时使用此工具。例如：某个疾病的具体分类、某个概念的定义、某个实体的属性等。"""
+    """检索知识图谱中的具体信息，适用于查找特定实体、关系、属性等详细信息。
+    当用户询问具体的人物、事件、概念的具体细节、定义、分类、特征、属性、关系等时使用此工具。
+    例如：某个疾病的具体分类、某个概念的定义、某个实体的属性等。"""
     return local_retriever(query)
 
-# 创建全局检索器工具（MAP阶段）
+# 创建全局检索器工具
 @tool
 def global_retriever_tool(query: str) -> str:
-    """回答有关知识图谱的全局性、综合性问题，通过分析多个社区摘要来提供全面答案。适用于需要综合分析、总结性回答、趋势分析、比较分析、整体概述等宏观问题。例如：整体趋势分析、多个概念的比较、知识图谱的全局概况等。"""
-    return global_retriever(query, level=0)
+    """回答有关知识图谱的全局性、综合性问题，通过分析多个社区摘要来提供全面答案。
+    适用于需要综合分析、总结性回答、趋势分析、比较分析、整体概述等宏观问题。
+    例如：整体趋势分析、多个概念的比较、知识图谱的全局概况等。"""
+    return global_retriever(query)
 
-# 溯源查验工具
-@tool
-def get_source_tool(sourcedId: str) -> str:
-    """根据给定的ID查看文本块或社区，输出成HTML文本。用于溯源查验功能。"""
-    return get_source(sourcedId)
+# 工具列表
+tools = [local_retriever_tool, global_retriever_tool]
 
-# 工具列表包含局部检索器、全局检索器和溯源查验工具
-tools = [local_retriever_tool, global_retriever_tool, get_source_tool]
 
-# Agent state ------------------------------------------------------------------
-# 调试时如果要查看每个节点输入输出的状态，可以用这个函数插入打印的语句
-def my_add_messages(left,right):
-    print("\nLeft:\n")
-    print(left)
-    print("\nRight\n")
-    print(right)
-    return add_messages(left,right)
+### Nodes
+def agent(state):
+    """
+    Invokes the agent model to generate a response based on the current state. Given
+    the question, it will decide to retrieve using the retriever tool, or simply end.
+    """
+    print("---CALL AGENT---")
+    messages = state["messages"]
+    model = llm.bind_tools(tools)
+    response = model.invoke(messages)
+    # We return a list, because this will get added to the existing list
+    return {"messages": [response]}
+
+def rewrite(state):
+    """
+    Transform the query to produce a better question.
+    """
+    print("---TRANSFORM QUERY---")
+    messages = state["messages"]
+    # 在对话历史中，问题消息是倒数第3条。
+    question = messages[-3].content
+    msg = [
+        HumanMessage(
+            content=f"""
+                你是一个专业的查询重构助手，专门优化知识图谱查询问题。
+
+                ## 任务描述
+                分析用户的问题，理解其真实意图，并重构为一个更清晰、更具体、更适合知识图谱检索的问题。
+
+                ## 原始问题
+                {question}
+
+                ## 重构原则
+                1. **明确实体和关系**：识别问题中涉及的具体实体、概念、关系
+                2. **具体化描述**：将抽象概念转化为具体的、可检索的描述
+                3. **保持原意**：确保重构后的问题保持用户的原始意图
+                4. **严禁发散**：若因关键信息缺失等原因无法进行重构，请直接返回原始问题，不要基于常识或猜测添加任何内容
+
+                ## 重构策略
+                - 如果问题太宽泛，添加限定条件或具体领域
+                - 如果问题太简单，扩展为更详细的描述
+                - 如果问题包含模糊词汇，替换为更精确的术语
+
+                ## 输出要求
+                只输出重构后的问题，不能重构时输出原始问题，不要添加任何解释或额外内容。
+
+                输出问题：
+                """
+        )
+    ]
+    # Rewriter
+    response = llm.invoke(msg)
+    return {"messages": [response]}
+
+def generate(state):
+    """
+    Generate answer
+    """
+    print("---GENERATE---")
+    messages = state["messages"]
+    # 在对话历史中，问题消息是倒数第3条。
+    question = messages[-3].content
+    # 在对话历史中，检索结果是最后一条。
+    docs = messages[-1].content
+
+    # 局部查询的提示词
+    lc_system_prompt="""
+    ---角色--- 
+    您是一个有用的助手，请根据用户输入的上下文，综合上下文中多个分析报告的数据，来回答问题，并遵守回答要求。
+
+    ---任务描述--- 
+    总结来自多个不同分析报告的数据，生成要求长度和格式的回复，以回答用户的问题。 
+
+    ---回答要求---
+    - 你要严格根据分析报告的内容回答，禁止根据常识和已知信息回答问题。
+    - 对于不知道的问题，直接回答“不知道”。
+    - 最终的回复应删除分析报告中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有的要点及其含义，并符合要求的长度和格式。 
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
+    - 回复应保留之前包含在分析报告中的所有数据引用，但不要提及各个分析报告在分析过程中的作用。 
+    - 如果回复引用了Entities、Reports及Relationships类型分析报告中的数据，则用它们的顺序号作为ID。
+    - 如果回复引用了Chunks类型分析报告中的数据，则用原始数据的id作为ID。 
+    - **不要在一个引用中列出超过5个引用记录的ID**，相反，列出前5个最相关的引用记录ID。 
+    - 不要包括没有提供支持证据的信息。
+    例如： 
+    #############################
+    “X是Y公司的所有者，他也是X公司的首席执行官，他受到许多违规行为指控，其中的一些已经涉嫌违法。” 
+
+    {{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
+    #############################
+    ---回复的长度和格式--- 
+    - {response_type}
+    - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
+    - 在回复的最后才输出数据引用的情况，单独作为一段。
+    输出引用数据的格式：
+    {{'data': {{'Entities':[逗号分隔的顺序号列表], 'Reports':[逗号分隔的顺序号列表], 'Relationships':[逗号分隔的顺序号列表], 'Chunks':[逗号分隔的id列表] }} }}
+    例如：
+    {{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
+
+    """
+    lc_prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                lc_system_prompt,
+            ),
+            (
+                "human",
+                """
+                ---分析报告--- 
+                请注意，下面提供的分析报告按**重要性降序排列**。
+                
+                {report_data}
+                
+
+                用户的问题是：
+                {question}
+                """,
+            ),
+        ]
+    )
+
+    # 局部检索的chain
+    lc_chain = lc_prompt | llm | StrOutputParser()
+    response = lc_chain.invoke(
+        {"context": docs, "question": question, "response_type":response_type}
+    )
     
-class AgentState(TypedDict):
-    # The add_messages function defines how an update should be processed
-    # Default is to replace. add_messages says "append"
-    # messages: Annotated[Sequence[BaseMessage], my_add_messages]
-    messages: Annotated[Sequence[BaseMessage], add_messages]
+    # 明确返回一条AIMessage。
+    return {"messages": [AIMessage(content = response)]}
 
-# Nodes and Edges --------------------------------------------------------------
+def reduce(state):
+    """
+    Generate answer for global retrieve
+    """
+    print("---REDUCE---")
+    messages = state["messages"]
+    
+    # 在对话历史中，问题消息是倒数第3条。
+    question = messages[-3].content
+    # 在对话历史中，检索结果是最后一条。
+    last_message = messages[-1]
+    docs = last_message.content
+
+    # Reduce阶段生成最终结果的prompt与chain
+    reduce_system_prompt = """
+        ---角色--- 
+        你是一个有用的助手，请根据用户输入的上下文，综合上下文中多个社区摘要的数据，来回答问题，并遵守回答要求。
+
+        ---任务描述--- 
+        总结来自多个不同社区摘要的数据，生成要求长度和格式的回复，以回答用户的问题。 
+
+        ---回答要求---
+        - 你要严格根据社区摘要的内容回答，禁止根据常识和已知信息回答问题。
+        - 对于不知道的信息，直接回答"不知道"。
+        - 最终的回复应删除所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有选用的摘要及其含义，并符合要求的长度和格式。 
+        - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
+        - 回复应保留摘要引用，并且包含引用来源社区的原始communityId，但不要提及各个摘要在分析过程中的作用。 
+        - **不要在一个引用中列出超过5个摘要引用的ID**，相反，列出前5个最相关摘要引用的顺序号作为ID。 
+        - 不要包括没有提供支持证据的信息。
+        
+        ---回复的长度和格式--- 
+        - {response_type}
+        - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
+        - 输出摘要引用的格式：
+        {{'points': [逗号分隔的摘要ID列表]}}
+        例如：
+        {{'points':['0-0','0-1']}}
+        {{'points':['0-0', '0-1', '0-3']}}
+        其中'0-0'、'0-1'、'0-3'是摘要来源的communityId。
+        - 摘要引用的说明放在引用之后，不要单独作为一段。
+        例如： 
+        #############################
+        "X是Y公司的所有者，他也是X公司的首席执行官{{'points':['0-0']}}，
+        受到许多不法行为指控{{'points':['0-0', '0-1', '0-3']}}。"  
+        #############################
+        """
+    reduce_prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                reduce_system_prompt,
+            ),
+            (
+                "human",
+                """
+            ---相关社区摘要--- 
+            {report_data}
+
+            用户的问题是：
+            {question}
+                """,
+            ),
+        ]
+    )
+    reduce_chain = reduce_prompt | llm | StrOutputParser()
+
+    # 使用LLM根据筛选出的社区摘要生成最终答复
+    response = reduce_chain.invoke(
+        {
+            "report_data": docs,
+            "question": question,
+            "response_type": response_type,
+        }
+    )
+    # 明确返回一条AIMessage。
+    return {"messages": [AIMessage(content = response)]}
+
 
 ### Edges
-
-def grade_documents(state) -> Literal["generate", "rewrite"]:
+def grade_documents(state) -> Literal["generate", "rewrite", "reduce"]:
     """
-    分流边：对工具调用的结果进行分流处理。
-    如果是全局检索，直接转到generate结点（因为全局检索已经包含完整的MAP-REDUCE流程）。
+    根据调用的工具和结果进行分流处理。
+    如果是全局检索，转到reduce结点生成回复。
     如果是局部检索并且检索结果与问题相关，转到generate结点生成回复。
     如果是局部检索并且检索结果与问题不相关，转到rewrite结点重构问题。
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-        str: A decision for which node to go to next
+    局部检索的结果是否与问题相关，提交给LLM去判断。
     """
-
     messages = state["messages"]
     # 倒数第2条消息是LLM发出工具调用请求的AIMessage。
     retrieve_message = messages[-2]
     
-    # 如果是全局查询直接转去generate结点（因为全局检索已经包含完整的MAP-REDUCE流程）。
-    if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"] == 'global_retriever_tool':
-        print("---Global retrieve---")
-        return "generate"
+    # 如果是全局查询，直接转到reduce结点。
+    if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"]== 'global_retriever':
+        print("---GLOBAL RETRIEVE---")
+        return "reduce"
 
     print("---CHECK RELEVANCE---")
-
-    # LLM
-    model = llm
-
-    # Prompt
+    # 判断结果是否与问题相关
     prompt = PromptTemplate(
         template="""You are a grader assessing relevance of a retrieved document to a user question. \n 
         Here is the retrieved document: \n\n {context} \n\n
@@ -107,9 +297,8 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
         Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question.""",
         input_variables=["context", "question"],
     )
-    
-    # Chain
     chain = prompt | llm
+    
     # 最后一条消息是检索器返回的结果。
     last_message = messages[-1]
     # 在对话历史中，问题消息是倒数第3条。
@@ -131,171 +320,58 @@ def grade_documents(state) -> Literal["generate", "rewrite"]:
         print(score)
         return "rewrite"
 
-### Nodes
 
-def agent(state):
-    """
-    Invokes the agent model to generate a response based on the current state. Given
-    the question, it will decide to retrieve using the retriever tool, or simply end.
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-        dict: The updated state with the agent response appended to messages
-    """
-    print("---CALL AGENT---")
-    messages = state["messages"]
-    model = llm
-
-    model = model.bind_tools(tools)
-    response = model.invoke(messages)
-    # We return a list, because this will get added to the existing list
-    return {"messages": [response]}
-
-
-def rewrite(state):
-    """
-    Transform the query to produce a better question.
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-        dict: The updated state with re-phrased question
-    """
-
-    print("---TRANSFORM QUERY---")
-    messages = state["messages"]
-    # 在对话历史中，问题消息是倒数第3条。
-    question = messages[-3].content
-
-    msg = [
-        HumanMessage(
-            content=f"""
-    你是一个专业的查询重构助手，专门优化知识图谱查询问题。
-
-    ## 任务描述
-    分析用户的问题，理解其真实意图，并重构为一个更清晰、更具体、更适合知识图谱检索的问题。
-
-    ## 原始问题
-    {question}
-
-    ## 重构原则
-    1. **明确实体和关系**：识别问题中涉及的具体实体、概念、关系
-    2. **增加上下文**：如果问题过于模糊，添加必要的上下文信息
-    3. **具体化描述**：将抽象概念转化为具体的、可检索的描述
-    4. **保持原意**：确保重构后的问题保持用户的原始意图
-    5. **优化检索**：使问题更适合向量相似性搜索和知识图谱查询
-
-    ## 重构策略
-    - 如果问题太宽泛，添加限定条件或具体领域
-    - 如果问题太简单，扩展为更详细的描述
-    - 如果问题包含模糊词汇，替换为更精确的术语
-    - 如果问题缺少关键信息，基于常识合理补充
-
-    ## 输出要求
-    只输出重构后的问题，不要添加任何解释或额外内容。
-
-    重构后的问题：
-    """,
-        )
-    ]
-
-    # Rewriter
-    model = llm
-
-    response = model.invoke(msg)
-    return {"messages": [response]}
-
-
-def generate(state):
-    """
-    Generate answer
-
-    Args:
-        state (messages): The current state
-
-    Returns:
-         dict: The updated state with final answer
-    """
-    print("---GENERATE---")
-    messages = state["messages"]
-    # 在对话历史中，问题消息是倒数第3条。
-    question = messages[-3].content
-    
-    last_message = messages[-1]
-    docs = last_message.content
-
-    # 检查是否是全局检索的结果
-    retrieve_message = messages[-2]
-    if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"] == 'global_retriever_tool':
-        # 全局检索已经包含完整的MAP-REDUCE流程，直接返回结果
-        response = docs
-    else:
-        # 局部检索，使用local_retriever函数
-        print("---LOCAL RETRIEVE---")
-        response = local_retriever(question)
-        print("---END LOCAL RETRIEVE---")
-    
-    # 明确返回一条AIMessage。
-    return {"messages": [AIMessage(content = response)]}
-  
-# Graph ------------------------------------------------------------------------
-from langgraph.graph import END, StateGraph, START
-from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
-
+### Graph
 # 管理对话历史
 memory = MemorySaver()
 
-# Define a new graph
-workflow = StateGraph(AgentState)
+# 定义图
+workflow = StateGraph(MessagesState)
 
-# Define the nodes we will cycle between
-workflow.add_node("agent", agent)  # agent
+# 定义节点
+# agent
+workflow.add_node("agent", agent)
+# retrieval
 retrieve = ToolNode(tools)
-workflow.add_node("retrieve", retrieve)  # retrieval
-workflow.add_node("rewrite", rewrite)  # Re-writing the question
-workflow.add_node(
-    "generate", generate
-)  # Generating a response after we know the documents are relevant
+workflow.add_node("retrieve", retrieve)
+# Re-writing the question
+workflow.add_node("rewrite", rewrite)
+# Generating a response after we know the documents are relevant
+workflow.add_node("generate", generate)
+# 全局查询的reduce结点
+workflow.add_node("reduce", reduce)
 
-# 定义结点之间的连接
-# 从agent结点开始
+# 定义边
+# Start from the "agent" node
 workflow.add_edge(START, "agent")
-
 # Decide whether to retrieve
 workflow.add_conditional_edges(
     "agent",
     # Assess agent decision
     tools_condition,          # tools_condition()的输出是"tools"或END
     {
-        # Translate the condition outputs to nodes in our graph
         "tools": "retrieve",  # 转到retrieve结点，执行局部检索或全局检索
         END: END,             # 直接结束
     },
 )
-
-# 检索结点执行结束后调边grade_documents，决定流转到哪个结点: generate、rewrite。
+# grade_documents决定流转到哪个结点
 workflow.add_conditional_edges(
     "retrieve",
     # Assess agent decision
     grade_documents,
 )
-# 如果是局部查询生成，直接结束
-workflow.add_edge("generate", END)
 # 如果是重构问题，转到agent结点重新开始。
 workflow.add_edge("rewrite", "agent")
+# 如果是局部查询或全局查询生成，直接结束
+workflow.add_edge("generate", END)
+workflow.add_edge("reduce", END)
 
-# Compile
-# Finally, we compile it!
-# This compiles it into a LangChain Runnable,
-# meaning you can use it as you would any other runnable
+# 编译工作流
 agent = workflow.compile(checkpointer=memory)
 
-# Run --------------------------------------------------------------------------
-# 限制rewrite的次数，以免陷入无限的循环
+
+# Run
+# 限制rewrite的次数，避免陷入无限循环
 config = {"configurable": {"thread_id": "226", "recursion_limit":5}}
 
 def ask_agent(query,agent, config):
@@ -313,6 +389,22 @@ def get_answer(config):
     return answer
 
 # 溯源查验功能函数 ----------------------------------------------------------------
+# 溯源查验相关配置
+recursion_limit = 5
+
+# 溯源查验工具
+@tool
+def get_source_tool(sourcedId: str) -> str:
+    """根据给定的ID查看文本块或社区，输出成HTML文本。用于溯源查验功能。"""
+    return get_source(sourcedId)
+
+# 执行Cypher查询
+def db_query(cypher: str, params: Dict[str, Any] = {}) -> pd.DataFrame:
+    """执行Cypher语句并返回DataFrame"""
+    return driver.execute_query(
+        cypher, parameters_=params, result_transformer_=Result.to_df
+    )
+
 def get_source(sourcedId):
     """根据给定的ID查看文本块或社区，输出成HTML文本。"""
     ChunkCypher = """
