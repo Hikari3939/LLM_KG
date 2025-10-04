@@ -1,6 +1,5 @@
 import re
 import hashlib
-import logging
 from typing import List
 from langchain_core.documents import Document
 from langchain_community.vectorstores import Neo4jVector
@@ -22,7 +21,6 @@ def create_Document(graph, type, uri, file_name):
 #创建Chunk结点并建立Chunk之间及与Document之间的关系
 #这个程序直接从Neo4j KG Builder拷贝引用，为了增加tokens属性稍作修改。
 def create_relation_between_chunks(graph, file_name, chunks: List)->list:
-    logging.info("creating FIRST_CHUNK and NEXT_CHUNK relationships between chunks")
     current_chunk_id = ""
     lst_chunks_including_hash = []
     batch_data = []
@@ -149,7 +147,6 @@ def convert_to_graph_document(chunk_id, input_text, result):
 # 完成Document->Chunk->Entity的结构。
 def merge_relationship_between_chunk_and_entites(graph: MyNeo4jGraph, graph_documents_chunk_chunk_Id : list):
     batch_data = []
-    logging.info("Create MENTIONS relationship between chunks and entities")
     for graph_doc_chunk_id in graph_documents_chunk_chunk_Id:
         query_data={
             'chunk_id': graph_doc_chunk_id,

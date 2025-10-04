@@ -1,10 +1,8 @@
 import os
 import pprint
-import pandas as pd
+from typing import Literal
 from dotenv import load_dotenv
 from langchain_core.tools import tool
-from typing import Literal, Dict, Any
-from neo4j import GraphDatabase, Result
 from langgraph.graph import MessagesState
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.prompts import PromptTemplate
@@ -15,29 +13,17 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, RemoveMessage
 
-from my_packages.AgentTool import local_retriever, global_retriever
-
+from my_packages.QueryAbout import local_retriever, global_retriever
 
 # 环境变量配置
 load_dotenv(".env")
-
-NEO4J_URI = os.environ.get("NEO4J_URI")
-NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
-
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
-LANGCHAIN_API_KEY = os.environ.get("LANGCHAIN_API_KEY")
 
 # LLM配置
-llm = ChatDeepSeek(
-    model='deepseek-chat'
-)
+llm = ChatDeepSeek(model='deepseek-chat')
 
 # LLM响应类型配置
 response_type: str = "多个段落"
-
-# 创建Neo4j数据库连接
-driver = GraphDatabase.driver()
 
 
 ### Tools
@@ -57,7 +43,6 @@ def global_retriever_tool(query: str) -> str:
     例如：整体趋势分析、多个概念的比较、知识图谱的全局概况等。"""
     return global_retriever(query)
 
-# 工具列表
 tools = [local_retriever_tool, global_retriever_tool]
 
 
@@ -322,59 +307,64 @@ def grade_documents(state) -> Literal["generate", "rewrite", "reduce"]:
 
 
 ### Graph
-# 管理对话历史
-memory = MemorySaver()
+def create_workflow():
+    '''创建工作流'''
+    workflow = StateGraph(MessagesState)
 
-# 定义图
-workflow = StateGraph(MessagesState)
+    # 定义节点
+    # agent
+    workflow.add_node("agent", agent)
+    # retrieval
+    retrieve = ToolNode(tools)
+    workflow.add_node("retrieve", retrieve)
+    # Re-writing the question
+    workflow.add_node("rewrite", rewrite)
+    # Generating a response after we know the documents are relevant
+    workflow.add_node("generate", generate)
+    # 全局查询的reduce结点
+    workflow.add_node("reduce", reduce)
 
-# 定义节点
-# agent
-workflow.add_node("agent", agent)
-# retrieval
-retrieve = ToolNode(tools)
-workflow.add_node("retrieve", retrieve)
-# Re-writing the question
-workflow.add_node("rewrite", rewrite)
-# Generating a response after we know the documents are relevant
-workflow.add_node("generate", generate)
-# 全局查询的reduce结点
-workflow.add_node("reduce", reduce)
-
-# 定义边
-# Start from the "agent" node
-workflow.add_edge(START, "agent")
-# Decide whether to retrieve
-workflow.add_conditional_edges(
-    "agent",
-    # Assess agent decision
-    tools_condition,          # tools_condition()的输出是"tools"或END
-    {
-        "tools": "retrieve",  # 转到retrieve结点，执行局部检索或全局检索
-        END: END,             # 直接结束
-    },
-)
-# grade_documents决定流转到哪个结点
-workflow.add_conditional_edges(
-    "retrieve",
-    # Assess agent decision
-    grade_documents,
-)
-# 如果是重构问题，转到agent结点重新开始。
-workflow.add_edge("rewrite", "agent")
-# 如果是局部查询或全局查询生成，直接结束
-workflow.add_edge("generate", END)
-workflow.add_edge("reduce", END)
-
-# 编译工作流
-agent = workflow.compile(checkpointer=memory)
+    # 定义边
+    # Start from the "agent" node
+    workflow.add_edge(START, "agent")
+    # Decide whether to retrieve
+    workflow.add_conditional_edges(
+        "agent",
+        # Assess agent decision
+        tools_condition,          # tools_condition()的输出是"tools"或END
+        {
+            "tools": "retrieve",  # 转到retrieve结点，执行局部检索或全局检索
+            END: END,             # 直接结束
+        },
+    )
+    # grade_documents决定流转到哪个结点
+    workflow.add_conditional_edges(
+        "retrieve",
+        # Assess agent decision
+        grade_documents,
+    )
+    # 如果是重构问题，转到agent结点重新开始。
+    workflow.add_edge("rewrite", "agent")
+    # 如果是局部查询或全局查询生成，直接结束
+    workflow.add_edge("generate", END)
+    workflow.add_edge("reduce", END)
+    
+    return workflow
 
 
-# Run
-# 限制rewrite的次数，避免陷入无限循环
-config = {"configurable": {"thread_id": "226", "recursion_limit":5}}
+### Run
+def create_agent(memory: MemorySaver):
+    '''创建agent实例'''
+    agent = create_workflow().compile(checkpointer=memory)
+    return agent
 
-def ask_agent(query,agent, config):
+def user_config(session_id=3939, recursion_limit=5):
+    """创建用户的session配置，以session_id作为thread_id"""
+    config = {"configurable": {"thread_id": session_id, "recursion_limit": recursion_limit}}
+    return config
+
+def ask_agent(query, agent, config=user_config()):
+    '''向agent发送消息'''
     inputs = {"messages": [("user", query)]}
     for output in agent.stream(inputs, config=config):
         for key, value in output.items():
@@ -383,121 +373,31 @@ def ask_agent(query,agent, config):
             pprint.pprint(value, indent=2, width=80, depth=None)
         pprint.pprint("\n---\n")
 
-def get_answer(config):
+def get_answer(memory: MemorySaver, config):
+    '''获取agent的回答'''
     chat_history = memory.get(config)["channel_values"]["messages"]
     answer = chat_history[-1].content
     return answer
 
-# 溯源查验功能函数 ----------------------------------------------------------------
-# 溯源查验相关配置
-recursion_limit = 5
-
-# 溯源查验工具
-@tool
-def get_source_tool(sourcedId: str) -> str:
-    """根据给定的ID查看文本块或社区，输出成HTML文本。用于溯源查验功能。"""
-    return get_source(sourcedId)
-
-# 执行Cypher查询
-def db_query(cypher: str, params: Dict[str, Any] = {}) -> pd.DataFrame:
-    """执行Cypher语句并返回DataFrame"""
-    return driver.execute_query(
-        cypher, parameters_=params, result_transformer_=Result.to_df
-    )
-
-def get_source(sourcedId):
-    """根据给定的ID查看文本块或社区，输出成HTML文本。"""
-    ChunkCypher = """
-    match (n:`__Chunk__`) where n.id=$id return n.fileName, n.text
-    """
-    CommunityCypher = """
-    match (n:`__Community__`) where n.id=$id return n.summary, n.id    
-    """
-    
-    temp = sourcedId.split(",")
-    if temp[0] == '2':
-        result = db_query(ChunkCypher, params={"id": temp[-1]})
-    else:
-        result = db_query(CommunityCypher, params={"id": temp[-1]})
-    
-    if result.shape[0] > 0:
-        if temp[0] == '2':  # Chunk
-            resp = result.iloc[0, 0] + "\n\n" + result.iloc[0, 1]
-        else:  # Community
-            resp = "社区摘要:\n" + result.iloc[0, 0] + "\n\n社区ID: " + result.iloc[0, 1]
-        resp = resp.replace("\n", "<br/>")
-    else:
-        resp = "在知识图谱中没有检索到该语料。"
-    return resp
-
-def user_config(sessionId):
-    """用户session对象，以session ID为thread_id"""
-    config = {"configurable": {"thread_id": sessionId, "recursion_limit": recursion_limit}}
-    return config
-
-def format_messages(messages):
-    """格式化输出成文本，只返回AI回复"""
-    resp = ""
-    for message in messages:
-        # 只输出AIMessage的内容，不添加前缀
-        if isinstance(message, AIMessage) and len(message.content) > 0:
-            resp = resp + message.content
-    return resp
-
-def add_links_to_text(text):
-    """保持原始引用格式，用于溯源查询"""
-    # 保持原始的引用格式，不转换为HTML链接
-    return text
-
-def ask_agent_with_source(query, sessionId):
-    """执行一轮对话，包含溯源查验功能"""
-    config = user_config(sessionId)
-    
-    # 创建新的用户消息
-    new_message = HumanMessage(content=query)
-    
-    try:
-        # 使用stream方式获取详细的调试信息，传入完整的消息历史
-        for output in agent.stream({"messages": [new_message]}, config=config):
-            for key, value in output.items():
-                pprint.pprint(f"Output from node '{key}':")
-                pprint.pprint("---")
-                pprint.pprint(value, indent=2, width=80, depth=None)
-            pprint.pprint("\n---\n")
-        
-        messages = agent.get_state(config).values["messages"]
-        # 只获取最后一条AIMessage的内容，保持引用格式用于溯源
-        for message in reversed(messages):
-            if isinstance(message, AIMessage) and len(message.content) > 0:
-                return message.content
-        return "抱歉，没有获取到有效回复。"
-    except Exception as e:
-        return f"抱歉，查询过程中出现错误：{str(e)}"
-
-def clear_session(sessionId):
-    """清除对话历史"""
-    config = user_config(sessionId)
+def clear_session(session_id):
+    '''清除对话历史'''
+    config = user_config(session_id)
     try:
         messages = agent.get_state(config).values["messages"]
-        # 要后入先删的次序到过来删，否则会抛Exception。
-        i = len(messages)
+        # 要从后往前倒过来删，否则会抛出异常。
+        i=len(messages)
+        # LangGraph现在还不支持删除整个对话，删除至保留第1轮对话。
         for message in reversed(messages):
             # 如果倒数第3条消息是ToolMessage，保留前面4条信息，它是一轮完整的对话。
-            if i == 4 and isinstance(messages[2], ToolMessage):
+            if i==4 and isinstance(messages[2],ToolMessage):
                 break
             agent.update_state(config, {"messages": RemoveMessage(id=message.id)})
-            i = i - 1
+            i = i-1
             # 保留第1轮对话。
-            if i == 2:
+            if i==2:
                 break
         messages = agent.get_state(config).values["messages"]
-        return format_messages(messages)
+        return format(messages)
     except Exception as e:
-        print(e)
-        return str(e)
-
-def get_messages(sessionId):
-    """获取对话的上下文"""
-    config = user_config(sessionId)
-    messages = agent.get_state(config).values["messages"]
-    return messages
+            print(e)
+            return str(e)

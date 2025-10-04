@@ -12,13 +12,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 环境变量配置
 load_dotenv(".env")
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
 
 NEO4J_URI = os.environ.get("NEO4J_URI")
 NEO4J_USERNAME = os.environ.get("NEO4J_USERNAME")
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
 
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-LANGCHAIN_API_KEY = os.environ.get("LANGCHAIN_API_KEY")
 
 # LLM配置
 llm = ChatDeepSeek(
@@ -31,6 +30,9 @@ embeddings = HuggingFaceEmbeddings(
     model_kwargs = {"device": "cpu"},
     cache_folder="./model"
 )
+
+# 创建Neo4j数据库连接
+driver = Neo4jGraph.driver()
 
 @traceable
 def local_retriever(query: str) -> str:
@@ -221,3 +223,27 @@ def global_retriever(query: str, level: int = 0) -> str:
     # 按分数降序排列
     qualified_results.sort(key=lambda x: x["score"], reverse=True)
     return qualified_results
+
+def get_source(source_id):
+    """根据给定的ID查看文本块或社区摘要"""
+    ChunkCypher = """
+    MATCH (n:`__Chunk__`) WHERE n.id = $id RETURN n.fileName, n.text
+    """
+    CommunityCypher = """
+    MATCH (n:`__Community__`) WHERE n.id = $id RETURN n.id, n.summary
+    """
+    
+    temp = len(source_id.split("-"))
+    if temp == 2:
+        result = driver.query(CommunityCypher, params={"id": source_id})
+    else:
+        result = driver.query(ChunkCypher, params={"id": source_id})
+    
+    if result:
+        if temp == 2:  # Community
+            resp = "\n社区ID: " + result[0]["n.id"] + "\n社区摘要:\n" + result[0]["n.summary"]
+        else:  # Chunk
+            resp = "\n文件名称:" + result[0]["n.fileName"] + "\n文本内容:\n" + result[0]["n.text"]
+    else:
+        resp = "知识图谱中未检索到该语料。"
+    return resp
