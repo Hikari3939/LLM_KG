@@ -125,7 +125,7 @@ def generate(state):
     - 最终的回复应删除分析报告中所有不相关的信息，并将清理后的信息合并为一个综合的答案，该答案应解释所有的要点及其含义，并符合要求的长度和格式。 
     - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。 
     - 回复应保留之前包含在分析报告中的所有数据引用，但不要提及各个分析报告在分析过程中的作用。 
-    - 如果回复引用了Entities、Reports及Relationships类型分析报告中的数据，则用它们的顺序号作为ID。
+    - 如果回复引用了Entities、Relationships类型分析报告中的数据，则用它们的顺序号作为ID。
     - 如果回复引用了Chunks类型分析报告中的数据，则用原始数据的id作为ID。 
     - **不要在一个引用中列出超过5个引用记录的ID**，相反，列出前5个最相关的引用记录ID。 
     - 不要包括没有提供支持证据的信息。
@@ -133,16 +133,16 @@ def generate(state):
     #############################
     “X是Y公司的所有者，他也是X公司的首席执行官，他受到许多违规行为指控，其中的一些已经涉嫌违法。” 
 
-    {{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
+    {{'Entities':[3], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb']}}
     #############################
     ---回复的长度和格式--- 
     - {response_type}
     - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
     - 在回复的最后才输出数据引用的情况，单独作为一段。
     输出引用数据的格式：
-    {{'data': {{'Entities':[逗号分隔的顺序号列表], 'Reports':[逗号分隔的顺序号列表], 'Relationships':[逗号分隔的顺序号列表], 'Chunks':[逗号分隔的id列表] }} }}
+    {{'Entities':[逗号分隔的顺序号列表], 'Relationships':[逗号分隔的顺序号列表], 'Chunks':[逗号分隔的id列表]}}
     例如：
-    {{'data': {{'Entities':[3], 'Reports':[2, 6], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb'] }} }}
+    {{'Entities':[3], 'Relationships':[12, 13, 15, 16, 64], 'Chunks':['d0509111239ae77ef1c630458a9eca372fb204d6','74509e55ff43bc35d42129e9198cd3c897f56ecb']}}
 
     """
     lc_prompt = ChatPromptTemplate.from_messages(
@@ -210,16 +210,16 @@ def reduce(state):
         - {response_type}
         - 根据要求的长度和格式，把回复划分为适当的章节和段落，并用markdown语法标记回复的样式。  
         - 输出摘要引用的格式：
-        {{'communityIds': [逗号分隔的摘要ID列表]}}
+        {{'CommunityIds': [逗号分隔的摘要ID列表]}}
         例如：
-        {{'communityIds':['0-0','0-1']}}
-        {{'communityIds':['0-0', '0-1', '0-3']}}
+        {{'CommunityIds':['0-1']}}
+        {{'CommunityIds':['0-0', '0-1', '0-3']}}
         其中'0-0'、'0-1'、'0-3'是摘要来源的communityId。
         - 摘要引用的说明放在引用之后，不要单独作为一段。
         例如： 
         #############################
-        "X是Y公司的所有者，他也是X公司的首席执行官{{'communityIds':['0-0']}}，
-        受到许多不法行为指控{{'communityIds':['0-0', '0-1', '0-3']}}。"  
+        "X是Y公司的所有者，他也是X公司的首席执行官{{'CommunityIds':['0-0']}}，
+        受到许多不法行为指控{{'CommunityIds':['0-0', '0-1', '0-3']}}。"  
         #############################
         """
     reduce_prompt = ChatPromptTemplate.from_messages(

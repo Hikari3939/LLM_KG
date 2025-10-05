@@ -1,26 +1,11 @@
+from langgraph.checkpoint.memory import InMemorySaver
 import streamlit as st
 import time
-import re
 import uuid
-import datetime
+import re
 
-# 模块导入
-try:
-    from agent import ask_agent_with_source, get_source, clear_session, agent, user_config
-    from langchain_core.messages import HumanMessage, AIMessage, RemoveMessage
-    AGENT_AVAILABLE = True
-except ImportError as e:
-    st.error(f"无法导入agent模块: {e}")
-    AGENT_AVAILABLE = False
-    # 占位函数
-    def ask_agent_with_source(prompt, session_id):
-        return "Agent模块不可用，请检查依赖安装"
-    def get_source(source_id):
-        return "Agent模块不可用，请检查依赖安装"
-    def clear_session():
-        pass
-    def sync_messages_to_agent(messages, session_id):
-        pass
+from my_packages.AgentAbout import create_agent, user_config, ask_agent, get_answer
+from my_packages.QueryAbout import get_source
 
 # 页面配置
 def setup_page_config():
@@ -31,8 +16,8 @@ def setup_page_config():
             layout="wide",
             initial_sidebar_state="expanded",
             menu_items={
-                'Get Help': 'https://github.com/your-repo',
-                'Report a bug': 'https://github.com/your-repo/issues',
+                'Get Help': 'https://github.com/Hikari3939/LLM_KG',
+                'Report a bug': 'https://github.com/Hikari3939/LLM_KG/issues',
                 'About': "基于知识图谱的智能问答系统"
             }
         )
@@ -335,167 +320,140 @@ def setup_custom_styles():
     </style>
     """, unsafe_allow_html=True)
 
-# 业务逻辑
-def get_source_content(source_id):
-    """调用溯源查询函数"""
-    try:
-        # 解析引用格式，提取实际的ID
-        if source_id.startswith("{'points':"):
-            # 提取points中的ID
-            matches = re.findall(r"\((\d+),'([0-9a-fA-F-]+)'\)", source_id)
-            if matches:
-                # 使用第一个匹配的ID，格式为 "1,community_id"
-                community_id = matches[0][1]
-                actual_id = f"1,{community_id}"
-                content = get_source(actual_id)
-                return content
-        elif source_id.startswith("'Chunks':"):
-            # 提取chunks中的ID
-            matches = re.findall(r"'([0-9a-fA-F]+)'", source_id)
-            if matches:
-                # 使用第一个匹配的ID，格式为 "2,chunk_id"
-                chunk_id = matches[0]
-                actual_id = f"2,{chunk_id}"
-                content = get_source(actual_id)
-                return content
-        
-        # 如果无法解析，直接使用原始ID
-        content = get_source(source_id)
-        return content
-    except Exception as e:
-        return f"溯源查询出现错误：{str(e)}"
-
-def sync_messages_to_agent(messages, session_id):
-    """同步历史消息到Agent"""
-    if not AGENT_AVAILABLE or not messages:
-        return
-    
-    try:
-        config = user_config(session_id)
-        
-        # 清除当前session的所有消息
-        current_state = agent.get_state(config)
-        if current_state and current_state.values.get("messages"):
-            existing_messages = current_state.values["messages"]
-            for message in reversed(existing_messages):
-                agent.update_state(config, {"messages": [RemoveMessage(id=message.id)]})
-        
-        # 将历史消息转换为agent格式并添加
-        agent_messages = []
-        for msg in messages:
-            if msg["role"] == "user":
-                agent_messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                agent_messages.append(AIMessage(content=msg["content"]))
-        
-        if agent_messages:
-            agent.update_state(config, {"messages": agent_messages})
-            
-    except Exception as e:
-        print(f"同步消息到agent时出错: {e}")
-        # 如果同步失败，不影响正常使用，只是没有历史上下文
-
 # 状态管理
-def initialize_session_state():
+def initialize_session_state(agent, memory):
     """初始化会话状态"""
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
-    if 'input_key' not in st.session_state:
-        st.session_state.input_key = 0
-    if 'selected_tab' not in st.session_state:
-        st.session_state.selected_tab = "知识图谱对话"
-    if 'current_source_id' not in st.session_state:
-        st.session_state.current_source_id = ""
-    if 'current_source_content' not in st.session_state:
-        st.session_state.current_source_content = "暂无溯源内容。"
-    if 'session_id' not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())
-    if 'should_show_traceability' not in st.session_state:
-        st.session_state.should_show_traceability = False
+    # Agent部分
+    if 'agent' not in st.session_state:
+        st.session_state.agent = agent
+    if 'memory' not in st.session_state:
+        st.session_state.memory = memory
+    # 对话部分
+    if 'current_config' not in st.session_state:
+        st.session_state.current_config = {}
+    if 'current_messages' not in st.session_state:
+        st.session_state.current_messages = []
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = []
-    if 'current_chat_id' not in st.session_state:
-        st.session_state.current_chat_id = None
+    # 溯源部分
+    if 'current_source_type' not in st.session_state:
+        st.session_state.current_source_type = ""
+    if 'current_source_content' not in st.session_state:
+        st.session_state.current_source_content = "暂无溯源内容。"
+    if 'show_traceability' not in st.session_state:
+        st.session_state.show_traceability = False
 
-def handle_source_click(source_id):
-    """处理溯源点击"""
-    st.session_state.current_source_id = source_id
-    st.session_state.current_source_content = get_source_content(source_id)
-    st.session_state.should_show_traceability = True
-    st.rerun()
+# 业务实现
+def deal_input(user_input):
+    '''处理用户输入'''
+    # 如果没有当前对话，创建新对话
+    if not st.session_state.current_config:
+        create_new_chat()
+    
+    # 添加用户消息
+    st.session_state.current_messages.append({"role": "user", "content": user_input})
+        
+    # 获取AI响应
+    with st.spinner("Agent正在思考..."):
+        ask_agent(user_input, st.session_state.agent, st.session_state.current_config)
+        response = get_answer(st.session_state.memory, st.session_state.current_config)
+        st.session_state.current_messages.append({"role": "assistant", "content": response})
+
+    # 保存当前对话
+    save_current_chat()
+
+def deal_trace(ai_message):
+    """处理溯源"""
+    # 定义标识符的正则表达式模式
+    patterns = [
+        # CommunityIds格式
+        (r"'CommunityIds':\[(.*?)\]", "Community"),
+        # Chunks格式
+        (r"'Chunks':\[(.*?)\]", "Chunk"),
+    ]
+    
+    # 收集所有匹配项
+    all_matches = []
+    for pattern, match_type in patterns:
+        matches = re.findall(pattern, ai_message)
+        all_matches.append((match_type, matches))
+
+    # 设置状态
+    match_type, matches = all_matches[0]
+    st.session_state.current_source_type = match_type
+    st.session_state.current_source_content = trace_source(matches)
+    st.session_state.show_traceability = True
 
 def create_new_chat():
     """创建新对话"""
-    # 生成新的session_id，确保完全独立的对话上下文
+    # 生成新的config，确保完全独立的对话上下文
     new_session_id = str(uuid.uuid4())
-    
-    # 如果agent模块可用，清除之前的对话历史
-    if AGENT_AVAILABLE:
-        try:
-            clear_session(st.session_state.session_id)
-        except Exception as e:
-            st.warning(f"清除对话历史时出现警告：{str(e)}")
-    
-    # 更新session_id为新的ID
-    st.session_state.session_id = new_session_id
-    
+    new_config = user_config(new_session_id)
+        
     # 创建新的对话记录
-    new_chat_id = str(uuid.uuid4())
     new_chat = {
-        'id': new_chat_id,
+        'config': new_config,
         'title': '新对话',
         'messages': [],
         'created_at': time.time()
     }
+    st.session_state.current_config = new_config
+    st.session_state.current_messages = []
     st.session_state.chat_history.append(new_chat)
-    st.session_state.current_chat_id = new_chat_id
-    st.session_state.messages = []
-    st.session_state.should_show_traceability = False
-
-def load_chat(chat_id):
-    """加载对话"""
-    for chat in st.session_state.chat_history:
-        if chat['id'] == chat_id:
-            # 为每个对话生成独立的session_id，确保上下文隔离
-            if 'session_id' not in chat:
-                chat['session_id'] = str(uuid.uuid4())
-            
-            st.session_state.current_chat_id = chat_id
-            st.session_state.session_id = chat['session_id']
-            st.session_state.messages = chat['messages']
-            st.session_state.should_show_traceability = False
-            
-            # 同步历史消息到agent的对话历史中
-            if AGENT_AVAILABLE and chat['messages']:
-                try:
-                    sync_messages_to_agent(chat['messages'], chat['session_id'])
-                except Exception as e:
-                    st.warning(f"同步对话历史时出现警告：{str(e)}")
-            
-            st.rerun()
-            break
 
 def save_current_chat():
-    """保存对话"""
-    if st.session_state.current_chat_id and st.session_state.messages:
-        for chat in st.session_state.chat_history:
-            if chat['id'] == st.session_state.current_chat_id:
-                chat['messages'] = st.session_state.messages
-                chat['session_id'] = st.session_state.session_id  # 保存session_id
-                # 更新标题为第一条用户消息
-                if st.session_state.messages:
-                    first_user_msg = next((msg for msg in st.session_state.messages if msg['role'] == 'user'), None)
-                    if first_user_msg:
-                        chat['title'] = first_user_msg['content'][:30] + '...' if len(first_user_msg['content']) > 30 else first_user_msg['content']
-                break
+    """保存当前对话"""
+    for chat in st.session_state.chat_history:
+        if chat['config'] == st.session_state.current_config:
+            chat['messages'] = st.session_state.current_messages
+            # 更新标题为第一条用户消息
+            if st.session_state.current_messages:
+                first_user_msg = next((msg for msg in st.session_state.current_messages if msg['role'] == 'user'), None)
+                if first_user_msg:
+                    chat['title'] = first_user_msg['content'][:30] + '...' if len(first_user_msg['content']) > 30 else first_user_msg['content']
+            break
 
-def delete_chat(chat_id):
+def load_chat(chat_config):
+    """加载对话"""
+    for chat in st.session_state.chat_history:
+        if chat['config'] == chat_config:            
+            st.session_state.current_config = chat['config']
+            st.session_state.current_messages = chat['messages']
+            break
+
+def delete_chat(chat_config):
     """删除对话"""
-    st.session_state.chat_history = [chat for chat in st.session_state.chat_history if chat['id'] != chat_id]
-    if st.session_state.current_chat_id == chat_id:
-        st.session_state.current_chat_id = None
-        st.session_state.messages = []
-    st.rerun()
+    # 删除历史
+    st.session_state.chat_history = [
+        chat for chat in st.session_state.chat_history if chat['config'] != chat_config
+    ]
+    # 删除检查点
+    st.session_state.memory.delete_thread(chat_config['configurable']['thread_id'])
+    
+    if st.session_state.current_config == chat_config:
+        st.session_state.current_config = {}
+        st.session_state.current_messages = []
+
+def trace_source(source_ids):
+    """查询来源"""
+    source_type = st.session_state.current_source_type
+    if source_type == "Community":
+        # 提取CommunityIds中的ID
+        matches = []
+        for source_id in source_ids:
+            matches.extend(re.findall(r"'([0-9a-fA-F-]+)'", source_id))
+        matches = list(set(matches))
+        content = ""
+        for community_id in matches:
+            content += get_source(community_id)
+        return content
+    elif source_type == "Chunk":
+        # 提取chunks中的ID
+        matches = re.findall(r"'([0-9a-fA-F]+)'", source_ids)
+        content = ""
+        for chunk_id in matches:
+            content += get_source(chunk_id)
+        return content
 
 # 界面组件
 def render_sidebar():
@@ -508,7 +466,10 @@ def render_sidebar():
         
         # 新建对话按钮
         if st.button("新建对话", use_container_width=True, type="primary"):
-            create_new_chat()
+            st.session_state.current_config = {}
+            st.session_state.current_messages = []
+            st.session_state.show_traceability = False
+            st.rerun()
         
         st.markdown("---")
         
@@ -517,7 +478,7 @@ def render_sidebar():
         
         if st.session_state.chat_history:
             for chat in reversed(st.session_state.chat_history):
-                is_active = chat['id'] == st.session_state.current_chat_id
+                is_active = chat['config'] == st.session_state.current_config
                 
                 # 创建列布局
                 col1, col2 = st.columns([4, 1])
@@ -528,15 +489,18 @@ def render_sidebar():
                     
                     if st.button(
                         display_title,
-                        key=f"load_{chat['id']}",
                         use_container_width=True,
                         type="primary" if is_active else "secondary"
                     ):
-                        load_chat(chat['id'])
+                        load_chat(chat['config'])
+                        st.session_state.show_traceability = False
+                        st.rerun()
                 
                 with col2:
-                    if st.button("×", key=f"delete_{chat['id']}", help="删除对话"):
-                        delete_chat(chat['id'])
+                    if st.button("×", help="删除对话"):
+                        delete_chat(chat['config'])
+                        st.session_state.show_traceability = False
+                        st.rerun()
         else:
             st.info("暂无历史对话")
         
@@ -555,7 +519,7 @@ def render_sidebar():
 def render_main_content():
     """渲染主内容"""
     # 检查是否需要显示溯源查验界面
-    if st.session_state.should_show_traceability:
+    if st.session_state.show_traceability:
         render_traceability_tab()
     else:
         render_chat_interface()
@@ -563,13 +527,17 @@ def render_main_content():
 def render_chat_interface():
     """渲染聊天界面"""
     # 显示对话历史
-    if st.session_state.messages:
+    if st.session_state.current_messages:
         # 创建聊天容器
-        for i, message in enumerate(st.session_state.messages):
+        for message in st.session_state.current_messages:
             if message["role"] == "user":
                 st.markdown(f'<div class="message-user">{message["content"]}</div>', unsafe_allow_html=True)
             else:
-                render_agent_message(message, i)
+                st.markdown(f'<div class="message-ai">{message["content"]}</div>', unsafe_allow_html=True)
+                # 溯源按钮
+                if st.button("查验引用", type="primary"):
+                    deal_trace(message["content"])
+                    st.rerun()
     else:
         # 简化的欢迎界面
         st.markdown("""
@@ -585,44 +553,10 @@ def render_chat_interface():
         """, unsafe_allow_html=True)
     
     # 输入区域
-    user_input = st.chat_input("输入您的问题，按回车发送...", key=f"input_{st.session_state.input_key}")
-    
+    user_input = st.chat_input("输入您的问题，按回车发送...")
     if user_input:
-        # 如果没有当前对话，创建新对话
-        if not st.session_state.current_chat_id:
-            create_new_chat()
-        else:
-            save_current_chat()
-        
-        # 添加用户消息
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        st.session_state.input_key += 1
-        
-        # 保存用户输入到session_state中，以便在重新运行后使用
-        st.session_state.pending_user_input = user_input
-        
-        # 重新运行以显示用户消息
+        deal_input(user_input)
         st.rerun()
-    
-    # 检查是否有待处理的用户输入
-    if hasattr(st.session_state, 'pending_user_input') and st.session_state.pending_user_input:
-        user_input = st.session_state.pending_user_input
-        # 清除待处理的输入
-        del st.session_state.pending_user_input
-        
-        # 获取AI响应
-        with st.spinner("知识图谱正在思考..."):
-            try:
-                response = ask_agent_with_source(user_input, st.session_state.session_id)
-                st.session_state.messages.append({"role": "assistant", "content": response})
-                
-                # 保存当前对话
-                save_current_chat()
-                
-                # 重新运行以显示AI回复
-                st.rerun()
-            except Exception as e:
-                st.error(f"处理请求时出现错误：{str(e)}")
 
 def render_traceability_tab():
     """渲染溯源界面"""
@@ -632,18 +566,14 @@ def render_traceability_tab():
     
     # 返回按钮
     if st.button("返回对话", type="primary"):
-        st.session_state.should_show_traceability = False
+        st.session_state.show_traceability = False
         st.rerun()
     
     st.markdown("---")
     
     # 溯源信息
-    if st.session_state.current_source_id:
+    if st.session_state.current_source_type:
         st.success("溯源信息已加载")
-        
-        # 溯源ID
-        st.subheader("溯源ID")
-        st.code(st.session_state.current_source_id, language="text")
         
         # 溯源内容
         st.subheader("溯源内容")
@@ -658,80 +588,16 @@ def render_traceability_tab():
         st.info("暂无溯源信息")
         st.markdown("点击AI回复中的'查验引用'按钮查看知识图谱来源信息")
 
-def render_agent_message(msg, index):
-    """渲染AI消息"""
-    display_content = msg["content"]
-    
-    # 定义各种标识符的正则表达式模式
-    patterns = [
-        # 完整的data结构
-        (r"\{'data':\s*\{[^}]*\}\s*\{[^}]*\}\}", "data_structure"),
-        # points格式
-        (r"\{'points':\[(.*?)\]\}", "points"),
-        # Chunks格式
-        (r"'Chunks':\[(.*?)\]", "chunks"),
-        # Entities格式
-        (r"'Entities':\[(.*?)\]", "entities"),
-        # Reports格式
-        (r"'Reports':\[(.*?)\]", "reports"),
-        # Relationships格式
-        (r"'Relationships':\[(.*?)\]", "relationships"),
-        # 单独的chunk ID
-        (r"'([0-9a-fA-F]{40})'", "chunk_id"),
-        # 数字ID
-        (r"\b(\d+)\b", "number_id")
-    ]
-    
-    # 收集所有匹配项
-    all_matches = []
-    for pattern, match_type in patterns:
-        matches = list(re.finditer(pattern, display_content))
-        for match in matches:
-            all_matches.append((match.start(), match.end(), match.group(0), match_type))
-    
-    # 按位置排序
-    all_matches.sort(key=lambda x: x[0])
-    
-    # 分割文本并处理引用
-    last_end = 0
-    parts = []
-    for start, end, match_text, match_type in all_matches:
-        # 添加前面的文本
-        parts.append(display_content[last_end:start])
-        
-        # 根据类型添加不同的样式
-        if match_type in ["data_structure", "points", "chunks", "entities", "reports", "relationships", "chunk_id", "number_id"]:
-            # 所有标识符都使用蓝色加粗样式
-            parts.append(f'<span class="identifier-highlight">{match_text}</span>')
-        else:
-            # 其他情况保持加粗
-            parts.append(f'**{match_text}**')
-        
-        last_end = end
-    
-    # 添加最后一部分文本
-    parts.append(display_content[last_end:])
-    
-    # 渲染消息内容
-    formatted_content = "".join(parts)
-    st.markdown(f'<div class="message-ai">{formatted_content}</div>', unsafe_allow_html=True)
-    
-    # 为溯源相关的引用添加按钮
-    traceability_matches = [m for m in all_matches if m[3] in ["points", "chunks", "data_structure"]]
-    for i, (start, end, match_text, match_type) in enumerate(traceability_matches):
-        if st.button(f"查验引用 {i+1}", key=f"source_{index}_{i}"):
-            handle_source_click(match_text)
-
 if __name__ == "__main__":
-    try:
-        # 初始化配置
-        setup_page_config()
-        setup_custom_styles()
-        initialize_session_state()
-        
-        # 渲染界面
-        render_sidebar()
-        render_main_content()
-        
-    except Exception as e:
-        st.error(f"应用运行错误: {str(e)}")
+    # 初始化agent
+    memory = InMemorySaver()
+    agent = create_agent(memory)
+    
+    # 初始化配置
+    setup_page_config()
+    setup_custom_styles()
+    initialize_session_state(agent, memory)
+    
+    # 渲染界面
+    render_sidebar()
+    render_main_content()

@@ -1,7 +1,6 @@
 import os
 import json
 from dotenv import load_dotenv
-from langsmith import traceable
 from langchain_neo4j import Neo4jGraph
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.prompts import ChatPromptTemplate
@@ -40,10 +39,9 @@ def local_retriever(query: str) -> str:
     topEntities = 10
     # Cypher查询部分
     topChunks = 3
-    topCommunities = 3
     topOutsideRels = 10
     topInsideRels = 10
-
+    
     # Cypher查询语句
     lc_retrieval_query = """
         WITH collect(node) as nodes
@@ -57,15 +55,6 @@ def local_retriever(query: str) -> str:
             ORDER BY freq DESC
             LIMIT $topChunks
         } AS text_mapping,
-        // Entity - Report Mapping
-        collect {
-            UNWIND nodes as n
-            MATCH (n)-[:IN_COMMUNITY]->(c:__Community__)
-            WITH distinct c, c.community_rank as rank
-            RETURN c.summary 
-            ORDER BY rank DESC
-            LIMIT $topCommunities
-        } AS report_mapping,
         // Outside Relationships 
         collect {
             UNWIND nodes as n
@@ -89,9 +78,10 @@ def local_retriever(query: str) -> str:
             UNWIND nodes as n
             RETURN n.description AS descriptionText
         } as entities
-        RETURN {Chunks: text_mapping, Reports: report_mapping, 
+        RETURN {Chunks: text_mapping, 
             Relationships: outsideRels + insideRels, 
-            Entities: entities} AS text, 1.0 AS score, {} AS metadata
+            Entities: entities} AS text, 
+            1.0 AS score, {} AS metadata
         """
     
     # 局部检索的Neo4j向量存储与索引
@@ -110,7 +100,6 @@ def local_retriever(query: str) -> str:
         k=topEntities,
         params={
             "topChunks": topChunks,
-            "topCommunities": topCommunities,
             "topOutsideRels": topOutsideRels,
             "topInsideRels": topInsideRels,
         },
