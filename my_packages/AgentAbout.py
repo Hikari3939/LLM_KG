@@ -1,5 +1,4 @@
 import os
-import pprint
 from typing import Literal
 from dotenv import load_dotenv
 from langchain_core.tools import tool
@@ -31,14 +30,17 @@ response_type: str = "多个段落"
 @tool
 def local_retriever_tool(query: str) -> str:
     """检索以脑卒中为核心，涵盖和脑卒中相关的药物、病症等知识图谱中的具体信息，
-    适用于查找具体的实体、关系、属性等。"""
+    适用于查找具体的实体、关系、属性等详细信息。能够提供精确的事实性答案，
+    包括具体的药物名称、病症特征、治疗方法和临床数据等具体信息。"""
     return local_retriever(query)
 
 # 创建全局检索器工具
 @tool
 def global_retriever_tool(query: str) -> str:
     """回答有关以脑卒中为核心，涵盖和脑卒中相关的药物、病症等知识图谱的全局性、综合性问题，
-    通过分析多个社区摘要来提供全面答案。适用于综合分析、整体概述等宏观问题。"""
+    通过分析多个社区摘要来提供全面答案。适用于综合分析、整体概述、趋势分析等宏观问题。
+    该工具仅能提供大体的概述性信息，无法获取任何具体细节信息。
+    """
     return global_retriever(query)
 
 tools = [local_retriever_tool, global_retriever_tool]
@@ -364,11 +366,8 @@ def user_config(session_id='3939', recursion_limit=3):
 def ask_agent(query, agent, config):
     '''向agent发送消息'''
     inputs = {"messages": [("user", query)]}
-    for output in agent.stream(inputs, config=config):
-        for key, value in output.items():
-            print(f"---Output from node '{key}'---")
-            pprint.pprint(value, indent=2, width=80, depth=None)
-        print("")
+    for _ in agent.stream(inputs, config=config):
+        pass  # 等待回复
 
 def get_answer(memory: InMemorySaver, config):
     '''获取agent的回答'''
