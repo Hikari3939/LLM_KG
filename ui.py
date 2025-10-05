@@ -43,33 +43,66 @@ def setup_custom_styles():
     """设置自定义样式"""
     st.markdown("""
     <style>
-        /* 全局蓝紫色主题 */
+        /* 全局浅蓝色主题 */
         :root {
-            --primary-color: #6366f1;
-            --primary-dark: #4f46e5;
-            --primary-light: #818cf8;
-            --secondary-color: #8b5cf6;
-            --accent-color: #a855f7;
-            --text-primary: #1e1b4b;
-            --text-secondary: #4c1d95;
-            --bg-primary: #f8fafc;
-            --bg-secondary: #f1f5f9;
+            --primary-color: #3b82f6;
+            --primary-dark: #2563eb;
+            --primary-light: #60a5fa;
+            --secondary-color: #0ea5e9;
+            --accent-color: #06b6d4;
+            --text-primary: #1e40af;
+            --text-secondary: #1e3a8a;
+            --bg-primary: #f0f9ff;
+            --bg-secondary: #e0f2fe;
         }
         
-        /* 侧边栏基础样式 */
+        /* 完全隐藏整个header区域 */
+        header {
+            display: none !important;
+        }
+        
+        /* 侧边栏始终显示 */
         section[data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #f8fafc 0%, #e0e7ff 100%);
+            background: linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%);
             min-width: 300px !important;
             max-width: 350px !important;
             border-right: 2px solid var(--primary-color);
+            transform: translateX(0) !important;
+            transition: none !important;
+            visibility: visible !important;
+            display: block !important;
+        }
+        
+        /* 调整主内容区域，为固定的侧边栏留出空间 */
+        .main .block-container {
+            padding-top: 1rem;
+            padding-left: 2rem;
+            padding-right: 1rem;
+            margin-left: 350px !important;
+            background: var(--bg-primary);
+        }
+        
+        /* 历史对话列表样式 */
+        .stSidebar .stButton > button {
+            margin-bottom: 4px !important;
+            padding: 6px 12px !important;
+            font-size: 0.9rem !important;
+        }
+        
+        .stSidebar .stCaption {
+            margin-top: 2px !important;
+            margin-bottom: 8px !important;
+            font-size: 0.8rem !important;
+        }
+        
+        .stSidebar hr {
+            margin: 8px 0 !important;
         }
         
         /* 隐藏Streamlit默认元素 */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
-        header {visibility: hidden;}
         .stDeployButton {visibility: hidden;}
-        
         
         .sidebar-title {
             text-align: center;
@@ -103,15 +136,6 @@ def setup_custom_styles():
             margin-bottom: 1.5rem;
             font-size: 1rem;
             color: var(--text-secondary);
-        }
-        
-        
-        /* 主内容区域样式 */
-        .main .block-container {
-            padding-top: 1rem;
-            padding-left: 1rem;
-            padding-right: 1rem;
-            background: var(--bg-primary);
         }
         
         /* 消息样式 */
@@ -303,12 +327,15 @@ def setup_custom_styles():
                 min-width: 280px !important;
                 max-width: 280px !important;
             }
+            .main .block-container {
+                margin-left: 280px !important;
+                padding-left: 1rem !important;
+            }
         }
     </style>
     """, unsafe_allow_html=True)
 
 # 业务逻辑
-
 def get_source_content(source_id):
     """调用溯源查询函数"""
     try:
@@ -424,7 +451,6 @@ def create_new_chat():
     st.session_state.current_chat_id = new_chat_id
     st.session_state.messages = []
     st.session_state.should_show_traceability = False
-    st.rerun()
 
 def load_chat(chat_id):
     """加载对话"""
@@ -493,10 +519,6 @@ def render_sidebar():
             for chat in reversed(st.session_state.chat_history):
                 is_active = chat['id'] == st.session_state.current_chat_id
                 
-                # 时间格式化
-                time_str = datetime.datetime.fromtimestamp(chat['created_at']).strftime("%m-%d %H:%M")
-                message_count = len(chat.get('messages', []))
-                
                 # 创建列布局
                 col1, col2 = st.columns([4, 1])
                 
@@ -515,13 +537,8 @@ def render_sidebar():
                 with col2:
                     if st.button("×", key=f"delete_{chat['id']}", help="删除对话"):
                         delete_chat(chat['id'])
-                
-                # 显示额外信息
-                st.caption(f"{time_str} · {message_count}条消息")
-                st.markdown("---")
         else:
             st.info("暂无历史对话")
-            st.markdown("---")
         
         # 使用说明
         with st.expander("使用说明", expanded=True):
@@ -581,8 +598,20 @@ def render_chat_interface():
         st.session_state.messages.append({"role": "user", "content": user_input})
         st.session_state.input_key += 1
         
+        # 保存用户输入到session_state中，以便在重新运行后使用
+        st.session_state.pending_user_input = user_input
+        
+        # 重新运行以显示用户消息
+        st.rerun()
+    
+    # 检查是否有待处理的用户输入
+    if hasattr(st.session_state, 'pending_user_input') and st.session_state.pending_user_input:
+        user_input = st.session_state.pending_user_input
+        # 清除待处理的输入
+        del st.session_state.pending_user_input
+        
         # 获取AI响应
-        with st.spinner("助手正在查询知识图谱..."):
+        with st.spinner("知识图谱正在思考..."):
             try:
                 response = ask_agent_with_source(user_input, st.session_state.session_id)
                 st.session_state.messages.append({"role": "assistant", "content": response})
@@ -590,7 +619,7 @@ def render_chat_interface():
                 # 保存当前对话
                 save_current_chat()
                 
-                # 重新运行以显示新消息
+                # 重新运行以显示AI回复
                 st.rerun()
             except Exception as e:
                 st.error(f"处理请求时出现错误：{str(e)}")
