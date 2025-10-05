@@ -330,9 +330,14 @@ def community_abstract(graph):
     )
     
     community_template = """
+    ---
     基于所提供的属于同一图社区的节点和关系，
-    生成所提供图社区信息的自然语言摘要： 
-    {community_info} 
+    生成所提供图社区信息的自然语言摘要。
+    要求输出为一整个段落，直接输出最终摘要。
+    ---
+    图社区信息：
+    {community_info}
+    ---
     摘要：
     """  
     community_prompt = ChatPromptTemplate.from_messages(

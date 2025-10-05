@@ -352,7 +352,7 @@ def deal_input(user_input):
     
     # 添加用户消息
     st.session_state.current_messages.append({"role": "user", "content": user_input})
-        
+    
     # 获取AI响应
     with st.spinner("Agent正在思考..."):
         ask_agent(user_input, st.session_state.agent, st.session_state.current_config)
@@ -376,13 +376,10 @@ def deal_trace(ai_message):
     all_matches = []
     for pattern, match_type in patterns:
         matches = re.findall(pattern, ai_message)
-        all_matches.append((match_type, matches))
-
-    # 设置状态
-    match_type, matches = all_matches[0]
-    st.session_state.current_source_type = match_type
-    st.session_state.current_source_content = trace_source(matches)
-    st.session_state.show_traceability = True
+        if matches:
+            all_matches.append((match_type, matches))
+    
+    return all_matches
 
 def create_new_chat():
     """创建新对话"""
@@ -436,24 +433,18 @@ def delete_chat(chat_config):
 
 def trace_source(source_ids):
     """查询来源"""
-    source_type = st.session_state.current_source_type
-    if source_type == "Community":
-        # 提取CommunityIds中的ID
+    if isinstance(source_ids, list):
         matches = []
         for source_id in source_ids:
             matches.extend(re.findall(r"'([0-9a-fA-F-]+)'", source_id))
         matches = list(set(matches))
-        content = ""
-        for community_id in matches:
-            content += get_source(community_id)
-        return content
-    elif source_type == "Chunk":
-        # 提取chunks中的ID
+    else:
         matches = re.findall(r"'([0-9a-fA-F]+)'", source_ids)
-        content = ""
-        for chunk_id in matches:
-            content += get_source(chunk_id)
-        return content
+    
+    content = ""
+    for id in matches:
+        content += get_source(id)
+    return content
 
 # 界面组件
 def render_sidebar():
@@ -482,6 +473,7 @@ def render_sidebar():
                 
                 # 创建列布局
                 col1, col2 = st.columns([4, 1])
+                thread_id = chat['config']['configurable']['thread_id']
                 
                 with col1:
                     # 显示对话标题和基本信息
@@ -489,6 +481,7 @@ def render_sidebar():
                     
                     if st.button(
                         display_title,
+                        key=thread_id,
                         use_container_width=True,
                         type="primary" if is_active else "secondary"
                     ):
@@ -497,7 +490,11 @@ def render_sidebar():
                         st.rerun()
                 
                 with col2:
-                    if st.button("×", help="删除对话"):
+                    if st.button(
+                        "×",
+                        key="delete_"+thread_id,
+                        help="删除对话"
+                    ):
                         delete_chat(chat['config'])
                         st.session_state.show_traceability = False
                         st.rerun()
@@ -505,8 +502,9 @@ def render_sidebar():
             st.info("暂无历史对话")
         
         # 使用说明
-        with st.expander("使用说明", expanded=True):
-            st.write("""
+        st.subheader("使用说明")
+        st.info(
+            """
             **问答类型：**
             - 全局性查询：整体情况
             - 局部性查询：具体实体  
@@ -514,7 +512,8 @@ def render_sidebar():
             
             **溯源功能：**
             点击AI回复中的'查验引用'查看来源
-            """)
+            """
+        )
 
 def render_main_content():
     """渲染主内容"""
@@ -529,15 +528,25 @@ def render_chat_interface():
     # 显示对话历史
     if st.session_state.current_messages:
         # 创建聊天容器
-        for message in st.session_state.current_messages:
+        for i, message in enumerate(st.session_state.current_messages):
             if message["role"] == "user":
                 st.markdown(f'<div class="message-user">{message["content"]}</div>', unsafe_allow_html=True)
             else:
                 st.markdown(f'<div class="message-ai">{message["content"]}</div>', unsafe_allow_html=True)
-                # 溯源按钮
-                if st.button("查验引用", type="primary"):
-                    deal_trace(message["content"])
-                    st.rerun()
+                all_matches = deal_trace(message["content"])
+                if all_matches:
+                    # 溯源按钮
+                    thread_id = st.session_state.current_config['configurable']['thread_id']
+                    if st.button(
+                        "查验引用",
+                        key=f"trace_{thread_id}_{i}",  # 使用索引i来构造key
+                        type="primary"
+                    ):
+                        match_type, matches = all_matches[0]
+                        st.session_state.current_source_type = match_type
+                        st.session_state.current_source_content = trace_source(matches)
+                        st.session_state.show_traceability = True
+                        st.rerun()
     else:
         # 简化的欢迎界面
         st.markdown("""
@@ -570,23 +579,16 @@ def render_traceability_tab():
         st.rerun()
     
     st.markdown("---")
-    
+        
     # 溯源信息
     if st.session_state.current_source_type:
-        st.success("溯源信息已加载")
-        
         # 溯源内容
         st.subheader("溯源内容")
-        st.text_area(
-            "溯源内容", 
-            value=st.session_state.current_source_content, 
-            height=400,
-            disabled=True,
-            label_visibility="collapsed"
+        st.markdown(
+            st.session_state.current_source_content
         )
     else:
         st.info("暂无溯源信息")
-        st.markdown("点击AI回复中的'查验引用'按钮查看知识图谱来源信息")
 
 if __name__ == "__main__":
     # 初始化agent
@@ -597,7 +599,7 @@ if __name__ == "__main__":
     setup_page_config()
     setup_custom_styles()
     initialize_session_state(agent, memory)
-    
+
     # 渲染界面
     render_sidebar()
     render_main_content()

@@ -228,9 +228,9 @@ def get_source(source_id):
     
     if result:
         if temp == 2:  # Community
-            resp = "\n社区ID: " + result[0]["n.id"] + "\n社区摘要:\n" + result[0]["n.summary"]
+            resp = "\n\n##### 社区ID: " + result[0]["n.id"] + "\n\n社区摘要:\n\n" + result[0]["n.summary"] + "\n\n"
         else:  # Chunk
-            resp = "\n文件名称:" + result[0]["n.fileName"] + "\n文本内容:\n" + result[0]["n.text"]
+            resp = "\n\n##### 文件名称:" + result[0]["n.fileName"] + "\n\n文本内容:\n\n" + result[0]["n.text"] + "\n\n"
     else:
-        resp = "知识图谱中未检索到该语料。"
+        resp = "##### 未检索到该语料。"
     return resp

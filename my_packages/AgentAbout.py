@@ -269,9 +269,8 @@ def grade_documents(state) -> Literal["generate", "rewrite", "reduce"]:
     
     # 如果是全局查询，直接转到reduce结点。
     if retrieve_message.additional_kwargs["tool_calls"][0]["function"]["name"]== 'global_retriever_tool':
-        print("---GLOBAL RETRIEVE---")
         return "reduce"
-
+    
     print("---CHECK RELEVANCE---")
     # 判断结果是否与问题相关
     prompt = PromptTemplate(
