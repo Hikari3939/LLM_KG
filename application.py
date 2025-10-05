@@ -353,6 +353,9 @@ def deal_input(user_input):
     # 添加用户消息
     st.session_state.current_messages.append({"role": "user", "content": user_input})
     
+    # 立即保存用户消息
+    save_current_chat()
+    
     # 获取AI响应
     with st.spinner("Agent正在思考..."):
         ask_agent(user_input, st.session_state.agent, st.session_state.current_config)
@@ -564,6 +567,11 @@ def render_chat_interface():
     # 输入区域
     user_input = st.chat_input("输入您的问题，按回车发送...")
     if user_input:
+        # 立即显示用户消息
+        with st.container():
+            st.markdown(f'<div class="message-user">{user_input}</div>', unsafe_allow_html=True)
+        
+        # 处理用户输入
         deal_input(user_input)
         st.rerun()
 
