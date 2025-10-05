@@ -15,7 +15,7 @@ NEO4J_USERNAME = os.environ["NEO4J_USERNAME"]
 NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 
 if __name__ == '__main__':
-    graph = MyNeo4jGraph(refresh_schema=False)
+    graph = MyNeo4jGraph()
     print("数据库成功连接")
     print('')
 
