@@ -1,11 +1,12 @@
 import re
 import os
 from my_packages.GetText import get, pq, re_title
+from my_packages.GetText import should_skip_content
 
 def crawl_medical_data():
     # 配置参数
     keyword = '脑卒中'
-    save_dir = os.path.join(os.getcwd(), 'data')
+    save_dir = os.path.join(os.getcwd(), 'data', 'familydoctor')
     
     headers = {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -53,6 +54,11 @@ def crawl_medical_data():
             title = li('h3>a').text()
             page_url = li('h3>a').attr('href')
             
+            # 先检查标题是否需要跳过
+            if should_skip_content(title, ""):
+                print(f'跳过通知类内容: {title}')
+                continue
+                
             response = get(url=page_url, headers=headers, try_num=3)
             if not response:
                 continue
@@ -65,11 +71,20 @@ def crawl_medical_data():
             if len(art_title) == 0:
                 continue
 
+            # 再次检查处理后的标题
+            if should_skip_content(art_title, ""):
+                print(f'跳过通知类内容: {art_title}')
+                continue
+
             save_path = os.path.join(save_dir, f'{art_title}.txt')
             save_path = re.sub(r'\\\\+', r'\\', save_path)
 
             date = html('.info .left').text()
             content = html('.viewContent').text()
+            
+            # 清理内容中的联系信息
+            content = re.sub(r'家庭医生在线（www\.familydoctor\.com\.cn）原创内容，未经授权不得转载，违者必究，内容合作请联系：020-37617238', '', content)
+            content = content.strip()
 
             if os.path.exists(save_path):
                 print(save_path, '已存在!')

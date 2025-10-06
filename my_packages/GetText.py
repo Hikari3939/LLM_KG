@@ -54,3 +54,16 @@ def re_title(title):
     title = re.sub(r'\s+', ' ', title)
     return title.strip()
 
+def should_skip_content(title, content):
+    """判断是否应该跳过这个内容"""
+    
+    # 过滤以方框日期开头的标题，如"[7.18]"
+    if re.match(r'^\[\d+\.\d+\]', title):
+        return True
+    
+    # 过滤包含特定关键词的通知类标题
+    if "【直播预告】" in title:
+        return True
+    
+    # 可以继续添加其他过滤条件
+    return False
