@@ -1,6 +1,7 @@
 hanlp
 neo4j
 zhconv
+pyquery
 requests
 pydantic
 langgraph

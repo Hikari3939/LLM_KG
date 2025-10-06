@@ -98,15 +98,16 @@ if __name__ == '__main__':
     将每个关系格式化为("relationship"{tuple_delimiter}<source_entity>{tuple_delimiter}<target_entity>{tuple_delimiter}<relationship_type>{tuple_delimiter}<relationship_description>{tuple_delimiter}<relationship_strength>) 
     3.实体和关系的所有属性用中文输出，步骤1和2中识别的所有实体和关系输出为一个列表。使用**{record_delimiter}**作为列表分隔符。 
     4.完成后，输出{completion_delimiter}
-    -注意-
-    严禁使用列表中不存在的实体类型和关系类型。如果遇到不能归类的类型，请将其归类为“其他”。
+    -注意- 
+    *严禁使用*列表中不存在的实体类型和关系类型。如果遇到不能归类的类型，请将其归类为“其他”。
 
     ###################### 
     -示例- 
     ###################### 
     Example 1:
 
-    Entity_types: [person, technology, mission, organization, location]
+    Entity_types: [person, technology, mission, organization, location, other]
+    Relationship_types: [workmate, study, contact, controled by, leads, leaded by, operate, other]
     Text:
     while Alex clenched his jaw, the buzz of frustration dull against the backdrop of Taylor's authoritarian certainty. It was this competitive undercurrent that kept him alert, the sense that his and Jordan's shared commitment to discovery was an unspoken rebellion against Cruz's narrowing vision of control and order.
 
@@ -130,7 +131,8 @@ if __name__ == '__main__':
     #############################
     Example 2:
 
-    Entity_types: [person, technology, mission, organization, location]
+    Entity_types: [person, technology, mission, organization, location, other]
+    Relationship_types: [workmate, study, contact, controled by, leads, leaded by, operate, other]
     Text:
     They were no longer mere operatives; they had become guardians of a threshold, keepers of a message from a realm beyond stars and stripes. This elevation in their mission could not be shackled by regulations and established protocols—it demanded a new perspective, a new resolve.
 
@@ -147,7 +149,8 @@ if __name__ == '__main__':
     #############################
     Example 3:
 
-    Entity_types: [person, role, technology, organization, event, location, concept]
+    Entity_types: [person, role, technology, organization, event, location, concept, other]
+    Relationship_types: [workmate, study, contact, controled by, leads, leaded by, operate, other]
     Text:
     their voice slicing through the buzz of activity. "Control may be an illusion when facing an intelligence that literally writes its own rules," they stated stoically, casting a watchful eye over the flurry of data.
 
@@ -196,31 +199,144 @@ if __name__ == '__main__':
 
     # 实体类型
     entity_types = [
-        "疾病", "症状", "体征", "风险因素", 
-        "解剖结构", "诊断方法", "治疗方法", "药物", "手术操作",
-        "评估量表", "功能障碍", "时间阶段", "生理过程", "病理过程",
-        "实验室检查", "影像学检查", "康复干预", "护理干预", "行为因素",
-        "环境因素", "遗传因素", "人口学因素", "生物标志物", "疫苗",
-        "医疗器械", "营养方案", "临床指南", "研究文献", "医疗团队角色",
-        "医疗机构", "医疗科目", "预后指标", "严重程度等级", "剂量方案",
-        "副作用", "禁忌症", "适应症", "病原体", "代谢物", "分子通路",
-        "细胞类型", "神经递质", "激素", "酶", "基因",
-        "蛋白质", "化学物质", "流行病学数据"
+        # 临床核心实体
+        {"name": "疾病", "description": "明确的病理状态，如脑卒中、高血压等"},
+        {"name": "症状", "description": "患者主观报告的不适感，如头痛、眩晕"},
+        {"name": "体征", "description": "客观可观察或测量的临床表现，如偏瘫、言语障碍"},
+        {"name": "功能障碍", "description": "身体或认知功能受损，如运动障碍、认知缺陷"},
+        {"name": "并发症", "description": "疾病过程中继发的其他健康问题，如肺炎、深静脉血栓"},
+        
+        # 诊断与评估实体
+        {"name": "诊断方法", "description": "用于确定疾病的通用方法，如临床评估、影像学分析"},
+        {"name": "实验室检查", "description": "通过生物样本检测获得的指标，如血常规、凝血功能"},
+        {"name": "影像学检查", "description": "利用影像技术进行的检查，如CT、MRI"},
+        {"name": "评估量表", "description": "标准化工具用于量化症状或功能，如NIHSS、格拉斯哥昏迷量表"},
+        {"name": "生理指标", "description": "可测量的生理参数，如血压、心率"},
+        {"name": "生物标志物", "description": "客观指示病理状态的生物分子，如C反应蛋白、同型半胱氨酸"},
+        
+        # 治疗与干预实体
+        {"name": "治疗方法", "description": "广义治疗策略，如药物治疗、康复治疗"},
+        {"name": "药物", "description": "用于治疗或预防疾病的化学物质，如阿司匹林、他汀类药物"},
+        {"name": "手术操作", "description": "外科介入程序，如血栓切除术、血管成形术"},
+        {"name": "康复干预", "description": "旨在恢复功能的非药物干预，如物理治疗、作业治疗"},
+        {"name": "护理干预", "description": "护理人员提供的措施，如体位管理、健康教育"},
+        {"name": "剂量方案", "description": "药物使用的具体剂量和频率，如每日一次、静脉滴注"},
+        {"name": "副作用", "description": "治疗引起的不良反应，如出血、过敏"},
+        {"name": "禁忌症", "description": "不适合特定治疗的情况，如活动性出血患者禁用抗凝药"},
+        {"name": "适应症", "description": "适合特定治疗的情况，如急性缺血性脑卒中适用溶栓治疗"},
+        
+        # 风险与保护因素
+        {"name": "行为因素", "description": "与生活方式相关的因素，如吸烟、饮酒"},
+        {"name": "环境因素", "description": "外部环境暴露，如空气污染、职业风险"},
+        {"name": "遗传因素", "description": "遗传背景相关的风险，如家族史、基因突变"},
+        {"name": "人口学因素", "description": "人口统计特征，如年龄、性别"},
+        {"name": "生理风险因素", "description": "内在生理状态，如肥胖、高血压"},
+        
+        # 生物医学基础实体
+        {"name": "解剖结构", "description": "身体组织结构，如大脑、血管"},
+        {"name": "细胞类型", "description": "特定细胞类别，如神经元、胶质细胞"},
+        {"name": "生理过程", "description": "正常身体功能过程，如血液循环、神经传导"},
+        {"name": "病理过程", "description": "疾病相关机制，如缺血、炎症"},
+        {"name": "分子通路", "description": "生物分子相互作用的路径，如凝血通路、凋亡通路"},
+        {"name": "神经递质", "description": "神经信号传递分子，如多巴胺、谷氨酸"},
+        {"name": "激素", "description": "内分泌调节分子，如肾上腺素、皮质醇"},
+        {"name": "酶", "description": "催化生物反应的蛋白质，如凝血酶、纤溶酶"},
+        {"name": "基因", "description": "遗传信息单位，如APOE基因、NOTCH3基因"},
+        {"name": "蛋白质", "description": "功能生物分子，如淀粉样蛋白、tau蛋白"},
+        {"name": "化学物质", "description": "一般化学实体，如葡萄糖、氧气"},
+        {"name": "代谢物", "description": "代谢过程中产生的小分子，如乳酸、酮体"},
+        
+        # 医疗资源与管理实体
+        {"name": "医疗团队角色", "description": "医疗专业人员角色，如神经科医生、护士"},
+        {"name": "医疗机构", "description": "提供医疗服务的场所，如医院、康复中心"},
+        {"name": "医疗科目", "description": "医学专业领域，如神经内科、放射科"},
+        {"name": "医疗器械", "description": "用于诊断或治疗的设备，如输液泵、监护仪"},
+        {"name": "疫苗", "description": "预防性生物制品，如流感疫苗"},
+        {"name": "营养方案", "description": "饮食管理计划，如低盐饮食、肠内营养"},
+        {"name": "临床指南", "description": "基于证据的实践推荐，如AHA/ASA脑卒中指南"},
+        {"name": "研究文献", "description": "科学出版物，如随机对照试验、综述文章"},
+        
+        # 预后与流行病学实体
+        {"name": "预后指标", "description": "预测疾病结局的参数，如死亡率、功能恢复率"},
+        {"name": "时间阶段", "description": "疾病或治疗的时间划分，如急性期、恢复期"},
+        {"name": "流行病学数据", "description": "疾病分布和决定因素的数据，如发病率、患病率"}
     ]
     # 关系类型
     relationship_types = [
-        "子类型", "导致", "增加风险", "是并发症", "有症状",
-        "表现为", "影响部位", "位于", "是部分", "供应",
-        "支配", "用于诊断", "用于治疗", "用于预防", "有副作用",
-        "禁忌于", "适应于", "评估方式", "导致障碍", "改善",
-        "加重", "相关", "相互作用", "发生于阶段", "推荐",
-        "检测", "测量", "暴露于", "具有", "接受",
-        "代谢", "激活", "抑制", "编码", "表达",
-        "参与过程", "剂量为", "持续时长", "流行于", "依赖",
-        "替代", "协同", "拮抗", "转化", "结合",
-        "调节", "易感性", "保护", "验证", "引用"
+        # 层次与分类关系
+        {"name": "子类型", "description": "表示概念间的继承关系，如缺血性脑卒中是脑卒中的子类型"},
+        {"name": "属于", "description": "表示实例与类别的关系，如某患者属于高血压人群"},
+        {"name": "部分整体", "description": "表示组成部分与整体的关系，如大脑中动脉是脑动脉的部分"},
+        
+        # 因果与风险关系
+        {"name": "导致", "description": "直接因果关系，如高血压导致脑卒中"},
+        {"name": "增加风险", "description": "增加患病概率的关系，如吸烟增加脑卒中风险"},
+        {"name": "减少风险", "description": "降低患病概率的关系，如锻炼减少脑卒中风险"},
+        {"name": "加重", "description": "使症状或病情恶化，如感染加重神经功能缺损"},
+        {"name": "改善", "description": "使症状或病情好转，如康复治疗改善运动功能"},
+        
+        # 临床关联关系
+        {"name": "有症状", "description": "疾病与症状的关联，如脑卒中有偏瘫症状"},
+        {"name": "表现为", "description": "疾病或病理过程的临床表现"},
+        {"name": "是并发症", "description": "疾病引发的继发性问题，如肺炎是脑卒中的并发症"},
+        {"name": "导致障碍", "description": "疾病导致的功能障碍，如脑卒中导致言语障碍"},
+        
+        # 解剖定位关系
+        {"name": "位于", "description": "解剖结构的位置关系"},
+        {"name": "影响部位", "description": "疾病或病理过程影响的解剖部位"},
+        {"name": "供应", "description": "血管供应关系，如大脑中动脉供应基底节区"},
+        {"name": "支配", "description": "神经支配关系"},
+        
+        # 诊断评估关系
+        {"name": "用于诊断", "description": "检查方法用于疾病诊断"},
+        {"name": "检测", "description": "检查方法检测特定指标"},
+        {"name": "测量", "description": "量化测量特定参数"},
+        {"name": "评估方式", "description": "评估工具与评估对象的关系"},
+        {"name": "验证", "description": "方法或工具的验证关系"},
+        
+        # 治疗干预关系
+        {"name": "用于治疗", "description": "治疗方法针对特定疾病"},
+        {"name": "用于预防", "description": "干预措施用于疾病预防"},
+        {"name": "适应于", "description": "治疗的适应症关系"},
+        {"name": "禁忌于", "description": "治疗的禁忌症关系"},
+        {"name": "有副作用", "description": "治疗引起的不良反应"},
+        {"name": "剂量为", "description": "药物的剂量方案"},
+        {"name": "给药方式", "description": "药物的给药途径"},
+        
+        # 药物相互作用
+        {"name": "协同", "description": "药物间的协同作用"},
+        {"name": "拮抗", "description": "药物间的拮抗作用"},
+        {"name": "相互作用", "description": "药物间的相互影响"},
+        
+        # 生物医学机制
+        {"name": "参与过程", "description": "分子或细胞参与生物过程"},
+        {"name": "激活", "description": "生物分子的激活作用"},
+        {"name": "抑制", "description": "生物分子的抑制作用"},
+        {"name": "代谢", "description": "物质的代谢转化"},
+        {"name": "编码", "description": "基因编码蛋白质"},
+        {"name": "表达", "description": "基因或蛋白质的表达"},
+        {"name": "调节", "description": "生物调节作用"},
+        {"name": "结合", "description": "分子间的结合作用"},
+        
+        # 时间与阶段关系
+        {"name": "发生于", "description": "事件发生的时间阶段"},
+        {"name": "持续时长", "description": "过程或治疗的持续时间"},
+        
+        # 流行病学关系
+        {"name": "流行于", "description": "疾病在人群或地区的分布"},
+        {"name": "易感性", "description": "人群对疾病的易感程度"},
+        
+        # 资源应用关系
+        {"name": "使用", "description": "使用医疗资源或工具"},
+        {"name": "推荐", "description": "指南或专家推荐"},
+        {"name": "引用", "description": "文献或证据引用"},
+        {"name": "基于", "description": "基于证据或原理"},
+        
+        # 预后结局关系
+        {"name": "预后指标", "description": "与预后相关的指标"},
+        {"name": "预测", "description": "预测疾病结局"}
     ]
-    
+
     for file_content in file_contents:
         t0 = time.time()
         # 并行处理提高效率
