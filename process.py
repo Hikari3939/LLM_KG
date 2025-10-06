@@ -14,10 +14,8 @@ NEO4J_URI = os.environ["NEO4J_URI"]
 NEO4J_USERNAME = os.environ["NEO4J_USERNAME"]
 NEO4J_PASSWORD = os.environ["NEO4J_PASSWORD"]
 
-DEEPSEEK_API_KEY = os.environ["DEEPSEEK_API_KEY"]
-
 if __name__ == '__main__':
-    graph = MyNeo4jGraph(refresh_schema=False)
+    graph = MyNeo4jGraph()
     print("数据库成功连接")
     print('')
 
@@ -59,6 +57,11 @@ if __name__ == '__main__':
     largest_component_id, wcc_result = GraphAbout.find_largest_connected_component(gds)
     GraphAbout.clean_isolated_entities(graph, largest_component_id, wcc_result)
     print("孤立实体清理完成")
+
+    # 重写描述
+    LLMAbout.rewrite_entity_descriptions(graph)
+    LLMAbout.rewrite_relationship_descriptions(graph)
+    print("描述重写完成")
 
     # 构建社区
     GraphAbout.clean_communities(graph)

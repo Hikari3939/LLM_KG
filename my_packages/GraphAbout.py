@@ -1,6 +1,5 @@
 import re
 import hashlib
-import logging
 from typing import List
 from langchain_core.documents import Document
 from langchain_community.vectorstores import Neo4jVector
@@ -22,7 +21,6 @@ def create_Document(graph, type, uri, file_name):
 #创建Chunk结点并建立Chunk之间及与Document之间的关系
 #这个程序直接从Neo4j KG Builder拷贝引用，为了增加tokens属性稍作修改。
 def create_relation_between_chunks(graph, file_name, chunks: List)->list:
-    logging.info("creating FIRST_CHUNK and NEXT_CHUNK relationships between chunks")
     current_chunk_id = ""
     lst_chunks_including_hash = []
     batch_data = []
@@ -149,7 +147,6 @@ def convert_to_graph_document(chunk_id, input_text, result):
 # 完成Document->Chunk->Entity的结构。
 def merge_relationship_between_chunk_and_entites(graph: MyNeo4jGraph, graph_documents_chunk_chunk_Id : list):
     batch_data = []
-    logging.info("Create MENTIONS relationship between chunks and entities")
     for graph_doc_chunk_id in graph_documents_chunk_chunk_Id:
         query_data={
             'chunk_id': graph_doc_chunk_id,
@@ -433,18 +430,32 @@ def clean_isolated_entities(graph, largest_component_id, wcc_result):
     if len(isolated_nodes) == 0:
         return
         
-    # 构建Cypher查询来删除孤立节点及其关系
-    query = """
+    # 删除孤立节点及其关系
+    query1 = """
     MATCH (e:__Entity__)
     WHERE id(e) IN $node_ids
     DETACH DELETE e
     """
-    
-    # 执行删除操作
     _ = graph.query(
-        query,
+        query1,
         params={"node_ids": isolated_nodes["nodeId"].tolist()}
     )
+    
+    # 删除没有连接到任何实体节点的块节点
+    query2 = """
+    MATCH (c:__Chunk__)
+    WHERE NOT (c)-[]->(:__Entity__)
+    DETACH DELETE c
+    """
+    _ = graph.query(query2)
+    
+    # 删除没有连接到任何块节点的文件节点
+    query3 = """
+    MATCH (d:__Document__)
+    WHERE NOT (d)<-[]-(:__Chunk__)
+    DETACH DELETE d
+    """
+    _ = graph.query(query3)
 
 # 清除旧的社区信息
 def clean_communities(graph):
