@@ -85,14 +85,14 @@ if __name__ == '__main__':
     -步骤- 
     1.识别所有实体。对于每个已识别的实体，提取以下信息： 
     -entity_name：实体名称，大写 
-    -entity_type：以下类型之一：[{entity_types}]，***当不能归类为上述列表中的类型时，归类为“其他”***
+    -entity_type：以下类型之一：[{entity_types}]，***当不能归类为上述列表中的类型时，归类为“其他”，严禁新增类型***
     -entity_description：对实体属性和活动的综合描述 
     将每个实体格式化为("entity"{tuple_delimiter}<entity_name>{tuple_delimiter}<entity_type>{tuple_delimiter}<entity_description>
     2.从步骤1中识别的实体中，识别彼此*明显相关*的所有实体配对(source_entity, target_entity)。 
     对于每对相关实体，提取以下信息： 
     -source_entity：源实体的名称，如步骤1中所标识的 
     -target_entity：目标实体的名称，如步骤1中所标识的
-    -relationship_type：以下类型之一：[{relationship_types}]，***当不能归类为上述列表中的类型时，归类为“其他”***
+    -relationship_type：以下类型之一：[{relationship_types}]，***当不能归类为上述列表中的类型时，归类为“其他”，严禁新增类型***
     -relationship_description：解释为什么你认为源实体和目标实体是相互关联的 
     -relationship_strength：一个数字评分，表示源实体和目标实体之间关系的强度 
     将每个关系格式化为("relationship"{tuple_delimiter}<source_entity>{tuple_delimiter}<target_entity>{tuple_delimiter}<relationship_type>{tuple_delimiter}<relationship_description>{tuple_delimiter}<relationship_strength>) 

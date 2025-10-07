@@ -327,8 +327,8 @@ def crawl_familydoctor_data(save_dir):
             
             print(f'已采集: {article_data["title"]}')
             
-            # 检查当前内容是否大于4000字符
-            if len(current_content) >= 4000:
+            # 检查当前内容是否大于5000字符
+            if len(current_content) >= 5000:
                 # 保存当前内容到文件
                 file_path = os.path.join(save_dir, f'familydoctor_{file_id}.txt')
                 if save_article_content(current_content, file_path):
