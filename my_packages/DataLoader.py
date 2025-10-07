@@ -61,7 +61,7 @@ def find_sentence_boundary_backward(tokens, start):
 # 文本分块，文本块的参考大小为chunk_size，文本块之间重叠部分的参考大小为overlap。
 # 为了保证文本块之间重叠的部分及文本块末尾截断的部分都是完整的句子，
 # 文本块的大小和重叠部分的大小都是根据当前文本块的内容动态调整的，是浮动的值。
-def chunk_text(text, chunk_size=300, overlap=50):
+def chunk_text(text, chunk_size=500, overlap=80):
     if chunk_size <= overlap:  # 参数检查
         raise ValueError("chunk_size must be greater than overlap.")
     # 先划分为段落，段落保存了语义上的信息，整个段落去处理。  

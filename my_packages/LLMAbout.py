@@ -118,7 +118,7 @@ def rewrite_entity_descriptions(graph, min_length = 500):
     query = """
     MATCH (n:__Entity__)
     WHERE n.description IS NOT NULL AND size(n.description) > $min_length
-    RETURN id(n) as node_id, n.description as description
+    RETURN elementId(n) as node_id, n.description as description
     """
     
     entities = graph.query(query, params={"min_length": min_length})
@@ -161,7 +161,7 @@ def rewrite_entity_descriptions(graph, min_length = 500):
             
             update_query = """
             MATCH (n:__Entity__)
-            WHERE id(n) = $node_id
+            WHERE elementId(n) = $node_id
             SET n.description = $new_description
             """
             
@@ -176,7 +176,7 @@ def rewrite_relationship_descriptions(graph, min_length = 60):
     query = """
     MATCH (:__Entity__)-[r]->(:__Entity__)
     WHERE r.description IS NOT NULL AND size(r.description) > $min_length
-    RETURN id(r) as rel_id, r.description as description
+    RETURN elementId(r) as rel_id, r.description as description
     """
     
     relationships = graph.query(query, params={"min_length": min_length})
@@ -217,7 +217,7 @@ def rewrite_relationship_descriptions(graph, min_length = 60):
             
             update_query = """
             MATCH (:__Entity__)-[r]->(:__Entity__)
-            WHERE id(r) = $rel_id
+            WHERE elementId(r) = $rel_id
             SET r.description = $new_description
             """
 

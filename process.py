@@ -1,11 +1,11 @@
 import os
 from dotenv import load_dotenv
+from langchain_neo4j import Neo4jVector
 from graphdatascience import GraphDataScience
-from langchain_community.vectorstores import Neo4jVector
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from my_packages import GraphAbout
 from my_packages import LLMAbout
+from my_packages import GraphAbout
 from my_packages.MyNeo4j import MyNeo4jGraph
 
 # 加载环境变量
@@ -18,6 +18,11 @@ if __name__ == '__main__':
     graph = MyNeo4jGraph()
     print("数据库成功连接")
     print('')
+    
+    # 初步重写描述
+    LLMAbout.rewrite_entity_descriptions(graph, 1000)
+    LLMAbout.rewrite_relationship_descriptions(graph)
+    print("描述初步重写完成")
 
     # 加载BAAI/BGE-M3(3.7G显存)
     embeddings = HuggingFaceEmbeddings(
