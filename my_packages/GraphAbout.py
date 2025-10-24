@@ -181,11 +181,11 @@ def knn_similarity(graph, gds):
 
     # 用KNN算法找出Embedding相似的实体，建立SIMILAR连接
     gds.knn.mutate(
-    G,
-    nodeProperties=['embedding'],
-    mutateRelationshipType= 'SIMILAR',
-    mutateProperty= 'score',
-    similarityCutoff=similarity_threshold
+        G,
+        nodeProperties=['embedding'],
+        mutateRelationshipType= 'SIMILAR',
+        mutateProperty= 'score',
+        similarityCutoff=similarity_threshold
     )
 
     # 弱连接组件算法（不分方向），从新识别的SIMILAR关系中识别相识的社区，社区编号存放在结点的wcc属性

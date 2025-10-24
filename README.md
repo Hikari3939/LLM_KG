@@ -1,24 +1,8 @@
-# 项目说明
+# 脑卒中知识图谱构建与问答系统实现
 
-## 文件结构
+## 运行依赖
 
-- my_packages         `项目模块`
-  - DatabaseAbout.py    `数据库操作模块`
-  - DataLoader.py       `原始数据加载模块`
-  - MyNeo4j.py          `重载的Neo4jGraph类`
-- create.py           `知识图谱初步构建`
-- process.py          `知识图谱完善`
-- query.py            `知识图谱查询`
-
-
-## 问答部分
-
-首先使用重载后的MyNeo4jGraph模块连接数据库并更新数据库结构，接下来连接DeepSeek大模型，利用GraphCypherQAChain模块构建工具链，使用LLM将问题转化为Cypher查询语言，并根据查询结果输出问题的答案。
-
-
-# 运行依赖
-
-- 拉取后需在项目主目录单独建立.env文件以连接数据库和DeepSeek，内容如下：
+- 拉取后需在项目主目录单独建立.env文件，内容如下：
 
         # 数据库配置
         NEO4J_URI="Your neo4j URI"
@@ -26,12 +10,17 @@
         NEO4J_PASSWORD="Your password"
 
         # api-key
-        DEEPSEEK_API_KEY = "Your deepseek api-key"
+        DEEPSEEK_API_KEY="Your deepseek api-key"
+        LANGSMITH_API_KEY="Your LangSmith api-key"
 
-- 需要在项目主目录建立data文件夹并放入相应txt文件作为数据源
+- 需要在项目主目录建立data文件夹并放入txt文件作为数据源，可嵌套，但不能使用其它文件格式
 
 - 使用指令：`pip install -r requirements.txt` 安装该项目需要的所有资源包
 
 - Neo4j需要安装APOC和GDS插件
   
 - 需要安装GPU对应版本的cuda和cuda对应版本的pytorch
+
+## 参考
+
+- [GraphRAG实战](https://github.com/icejean/GraphRAG)
